@@ -35,8 +35,8 @@ export default function Dashboard() {
     { id: "peru", label: "Peru", img: require("../assets/images/past-peru.jpg") },
   ];
 
-  const onMainTripPress = () => console.log("Main trip pressed");
-  const onTokyoLabelPress = () => console.log("Tokyo label pressed");
+  // ✅ make the label go to maintrip (same as the card)
+  const onTokyoLabelPress = () => router.push("/maintrip");
 
   // ✅ Navigate to Travel History
   const onPastTripsArrowPress = () => {
@@ -45,6 +45,7 @@ export default function Dashboard() {
 
   const onPastTripPress = (trip) => console.log("Past trip pressed:", trip.label);
   const onCreateTripPress = () => console.log("Create trip pressed");
+  const onMainTripPress = () => router.push("/maintrip");
   const onCameraPress = () => router.push("/camera");
   const onPreparationPress = () => router.push("/preparation");
   const onJournal = () => router.push("/journal");
@@ -132,10 +133,6 @@ export default function Dashboard() {
         <TouchableOpacity onPress={onPreparationPress} style={styles.createBtn} activeOpacity={0.9}>
           <Text style={styles.createBtnText}>preparation</Text>
         </TouchableOpacity>
-
-        {/* <TouchableOpacity onPress={onJournalPress} style={styles.createBtn} activeOpacity={0.9}>
-          <Text style={styles.createBtnText}>journal</Text>
-        </TouchableOpacity> */}
 
         <TouchableOpacity onPress={onChatPress} style={styles.createBtn} activeOpacity={0.9}>
           <Text style={styles.createBtnText}>chat</Text>
