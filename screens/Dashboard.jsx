@@ -1,7 +1,8 @@
-// screens/Dashboard.jsx
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   ImageBackground,
   Platform,
@@ -13,35 +14,56 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
 export default function Dashboard() {
   const router = useRouter();
+  const [pastTrips, setPastTrips] = useState([]);
+  const [loadingPastTrips, setLoadingPastTrips] = useState(true);
 
-  // ✅ Local images (NO links)
-  const MAIN_TRIP_IMAGE = require("../assets/images/main-trip.jpg"); // your big Tokyo card image
+  const MAIN_TRIP_IMAGE = require("../assets/images/main-trip.jpg");
 
-  const pastTrips = [
-    {
-      id: "hawaii",
-      label: "Hawaii",
-      img: require("../assets/images/past-hawaii.jpeg"),
-    },
-    { id: "dc", label: "D.C.", img: require("../assets/images/past-dc.jpg") },
-    {
-      id: "california",
-      label: "California",
-      img: require("../assets/images/past-california.jpg"),
-    },
-    { id: "peru", label: "Peru", img: require("../assets/images/past-peru.jpg") },
-  ];
+  const loadPastTrips = async () => {
+    try {
+      setLoadingPastTrips(true);
 
-  // ✅ make the label go to maintrip (same as the card)
+      const user = auth.currentUser;
+      if (!user) {
+        setPastTrips([]);
+        setLoadingPastTrips(false);
+        return;
+      }
+
+      const tripsRef = collection(db, "users", user.uid, "trips");
+      const q = query(tripsRef, where("status", "==", "completed"));
+      const snapshot = await getDocs(q);
+
+      const trips = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      setPastTrips(trips);
+    } catch (error) {
+      console.log("Error loading past trips:", error);
+      setPastTrips([]);
+    } finally {
+      setLoadingPastTrips(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPastTrips();
+    }, [])
+  );
+
   const onTokyoLabelPress = () => router.push("/maintrip");
+  const onPastTripsArrowPress = () => router.push("/pasttriplist");
+  const onPastTripPress = (trip) =>
+    router.push({ pathname: "/trip/[id]", params: { id: trip.id } });
 
-  // ✅ Navigate to Travel History
-  const onPastTripsArrowPress = () => { router.push("/pasttriplist");  };
-
-  const onPastTripPress = (trip) => console.log("Past trip pressed:", trip.label);
   const onCreateTripPress = () => console.log("Create trip pressed");
   const onMainTripPress = () => router.push("/maintrip");
   const onCameraPress = () => router.push("/camera");
@@ -55,28 +77,35 @@ export default function Dashboard() {
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Top row */}
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={onBackPress} style={styles.iconButton} activeOpacity={0.7}>
+          <TouchableOpacity
+            onPress={onBackPress}
+            style={styles.iconButton}
+            activeOpacity={0.7}
+          >
             <Ionicons name="chevron-back" size={24} color="#111827" />
           </TouchableOpacity>
         </View>
 
-        {/* Title */}
         <View style={styles.titleWrap}>
           <Text style={styles.title}>CARRY ON</Text>
           <Text style={styles.subtitle}>PLAN. PACK. GO.</Text>
         </View>
 
-        {/* Main trip card button */}
-        <TouchableOpacity onPress={onMainTripPress} style={styles.heroButton} activeOpacity={0.9}>
+        <TouchableOpacity
+          onPress={onMainTripPress}
+          style={styles.heroButton}
+          activeOpacity={0.9}
+        >
           <ImageBackground
             source={MAIN_TRIP_IMAGE}
             style={styles.heroImage}
             imageStyle={styles.heroImageRadius}
           >
-            {/* Tokyo label button */}
             <TouchableOpacity
               onPress={onTokyoLabelPress}
               activeOpacity={0.85}
@@ -87,7 +116,6 @@ export default function Dashboard() {
           </ImageBackground>
         </TouchableOpacity>
 
-        {/* Past Trips header + arrow button */}
         <View style={styles.pastHeader}>
           <Text style={styles.sectionTitle}>Past Trips</Text>
 
@@ -100,43 +128,82 @@ export default function Dashboard() {
           </TouchableOpacity>
         </View>
 
-        {/* Past Trips circles (scrollable, shows max 7) */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.circlesRow}>
-          {pastTrips.slice(0, 7).map((t) => (
-            <TouchableOpacity
-              key={t.id}
-              onPress={() => onPastTripPress(t)}
-              style={styles.tripCircleBtn}
-              activeOpacity={0.85}
-            >
-              <View style={styles.circleShadowWrap}>
-                <Image source={t.img} style={styles.tripCircleImg} />
-              </View>
-              <Text style={styles.tripCircleLabel} numberOfLines={1}>
-                {t.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {loadingPastTrips ? (
+          <View style={styles.pastTripsState}>
+            <ActivityIndicator size="small" color="#3F63F3" />
+          </View>
+        ) : pastTrips.length === 0 ? (
+          <View style={styles.pastTripsState}>
+            <Text style={styles.emptyPastTripsText}>No past trips yet</Text>
+          </View>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.circlesRow}
+          >
+            {pastTrips.slice(0, 7).map((t) => (
+              <TouchableOpacity
+                key={t.id}
+                onPress={() => onPastTripPress(t)}
+                style={styles.tripCircleBtn}
+                activeOpacity={0.85}
+              >
+                <View style={styles.circleShadowWrap}>
+                  {t.imageUrl ? (
+                    <Image source={{ uri: t.imageUrl }} style={styles.tripCircleImg} />
+                  ) : (
+                    <View style={styles.tripCirclePlaceholder}>
+                      <Ionicons name="airplane" size={22} color="#9CA3AF" />
+                    </View>
+                  )}
+                </View>
 
-        {/* Create Trip button */}
-        <TouchableOpacity onPress={onCreateTripPress} style={styles.createBtn} activeOpacity={0.9}>
+                <Text style={styles.tripCircleLabel} numberOfLines={1}>
+                  {t.title || "Trip"}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+
+        <TouchableOpacity
+          onPress={onCreateTripPress}
+          style={styles.createBtn}
+          activeOpacity={0.9}
+        >
           <Text style={styles.createBtnText}>CREATE TRIP! (doesn't work rn)</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={onCameraPress} style={styles.createBtn} activeOpacity={0.9}>
+        <TouchableOpacity
+          onPress={onCameraPress}
+          style={styles.createBtn}
+          activeOpacity={0.9}
+        >
           <Text style={styles.createBtnText}>camera</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={onPreparationPress} style={styles.createBtn} activeOpacity={0.9}>
+        <TouchableOpacity
+          onPress={onPreparationPress}
+          style={styles.createBtn}
+          activeOpacity={0.9}
+        >
           <Text style={styles.createBtnText}>preparation</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={onChatPress} style={styles.createBtn} activeOpacity={0.9}>
+        <TouchableOpacity
+          onPress={onChatPress}
+          style={styles.createBtn}
+          activeOpacity={0.9}
+        >
           <Text style={styles.createBtnText}>chat</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={onSignInPress} style={styles.createBtn} activeOpacity={0.9}>
+        <TouchableOpacity
+          onPress={onSignInPress}
+          style={styles.createBtn}
+          activeOpacity={0.9}
+        >
           <Text style={styles.createBtnText}>sign in screen</Text>
         </TouchableOpacity>
 
@@ -274,11 +341,32 @@ const styles = StyleSheet.create({
     borderRadius: 31,
     resizeMode: "cover",
   },
+  tripCirclePlaceholder: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   tripCircleLabel: {
     marginTop: 8,
     fontSize: 12,
     fontWeight: "600",
     color: "#111827",
+  },
+
+  pastTripsState: {
+    paddingTop: 18,
+    paddingBottom: 10,
+    minHeight: 80,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  emptyPastTripsText: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "500",
   },
 
   createBtn: {
