@@ -1,31 +1,25 @@
 // screens/Auth.jsx
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebaseConfig";
 
 
-/**
- * UI-only Auth screen to match the mock.
- * Put in: carryon/screens/Auth.jsx
- *
- * If you want it as a route:
- * app/auth.jsx ->
- *   import Auth from "../screens/Auth";
- *   export default Auth;
- */
 
 export default function Auth() {
   const router = useRouter();
@@ -39,46 +33,39 @@ export default function Auth() {
   const onSignUp = async () => {
   try {
     await createUserWithEmailAndPassword(auth, email.trim(), password);
-    console.log("Signed up!");
-    // later: router.replace("/dashboard") or whatever
+    Alert.alert("Success! Welcome to CarryOn!")
   } catch (e) {
-    console.log("Sign up error:", e.message);
+    Alert.alert("Sign up error:", e.message);
   }
 
   router.push("/dashboard")
 };
 
-const onLogIn = async () => {
-  try {
-    await signInWithEmailAndPassword(auth, email.trim(), password);
-    console.log("Logged in!");
-  } catch (e) {
-    console.log("Log in error:", e.message);
-  }
-
-  router.push("/dashboard")
-};
-
+const onBack = () => router.back();
 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+      <Pressable onPress={onBack} style={styles.iconButton} hitSlop={8}>
+            <Ionicons name="chevron-back" size={24} color="#111827" />
+          </Pressable>
 
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.container}>
-          {/* Logo / Title */}
+          
           <View style={styles.brandWrap}>
             <Text style={styles.brand}>CARRY ON</Text>
             <Text style={styles.tagline}>PLAN. PACK. GO.</Text>
           </View>
 
-          {/* Card */}
+          
           <View style={styles.card}>
             <Text style={styles.h1}>Create an account</Text>
-            <Text style={styles.sub}>Enter your email to sign up for this app</Text>
+            <Text style={styles.sub}>Enter your details to sign up for this app</Text>
 
             <TextInput
               value={email}
@@ -115,17 +102,9 @@ const onLogIn = async () => {
                 <Text style={styles.btnText}>SIGN UP</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={onLogIn} style={styles.btn} activeOpacity={0.9}>
-                <Text style={styles.btnText}>LOG IN</Text>
-              </TouchableOpacity>
+              
             </View>
 
-            <Text style={styles.legal}>
-              By clicking continue, you agree to our{" "}
-              <Text style={styles.link}>Terms of Service</Text>
-              {"\n"}and{" "}
-              <Text style={styles.link}>Privacy Policy</Text>
-            </Text>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -142,6 +121,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },

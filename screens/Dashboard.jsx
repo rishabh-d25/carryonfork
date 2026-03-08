@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,7 +15,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { collection, getDocs, query, where } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
 export default function Dashboard() {
@@ -64,13 +64,9 @@ export default function Dashboard() {
   const onPastTripPress = (trip) =>
     router.push({ pathname: "/trip/[id]", params: { id: trip.id } });
 
-  const onCreateTripPress = () => console.log("Create trip pressed");
+  const onCreateTripPress = () => router.push("/createtrip");;
   const onMainTripPress = () => router.push("/maintrip");
   const onCameraPress = () => router.push("/camera");
-  const onPreparationPress = () => router.push("/preparation");
-  const onJournal = () => router.push("/journal");
-  const onChatPress = () => router.push("/chat");
-  const onSignInPress = () => router.push("/signin");
   const onBackPress = () => router.back();
 
   return (
@@ -181,30 +177,6 @@ export default function Dashboard() {
           activeOpacity={0.9}
         >
           <Text style={styles.createBtnText}>camera</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={onPreparationPress}
-          style={styles.createBtn}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.createBtnText}>preparation</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={onChatPress}
-          style={styles.createBtn}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.createBtnText}>chat</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={onSignInPress}
-          style={styles.createBtn}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.createBtnText}>sign in screen</Text>
         </TouchableOpacity>
 
         <View style={{ height: 24 }} />

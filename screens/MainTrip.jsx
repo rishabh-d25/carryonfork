@@ -59,7 +59,7 @@ export default function MainTrip() {
   const onBack = () => router.back();
 
   // Buttons
-  const onTodo = () => console.log("My Tokyo To-Do");
+  const onTodo = () => router.push("/preparation");
 
   // ✅ IMPORTANT: push to the route file in /app (app/addactivity.jsx)
   const onAdd = () => {
@@ -87,7 +87,7 @@ export default function MainTrip() {
           <Text style={styles.headerTitle}>Tokyo, Japan</Text>
 
           <Pressable
-            onPress={() => console.log("message")}
+            onPress={() => router.push("/chat")}
             style={[styles.iconButton, { justifyContent: "center" }]}
             hitSlop={8}
           >
