@@ -13,56 +13,59 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebaseConfig";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
-
+const BLUE = "#3F63F3";
 
 export default function Auth() {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
-
   const [username, setUsername] = useState("");
-   
   const [password, setPassword] = useState("");
 
-  const onSignUp = async () => {
-  try {
-    await createUserWithEmailAndPassword(auth, email.trim(), password);
-    Alert.alert("Success! Welcome to CarryOn!")
-  } catch (e) {
-    Alert.alert("Sign up error:", e.message);
-  }
+  const onSignUpPress = async () => {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const uid = userCredential.user.uid;
 
-  router.push("/dashboard")
-};
+      await setDoc(doc(db, "users", uid), {
+        username: username.trim(),
+        email: email.trim(),
+      });
 
-const onBack = () => router.back();
+      Alert.alert("Success! Welcome to CarryOn!");
+      router.push("/dashboard");
+    } catch (e) {
+      Alert.alert("Sign up error", e.message);
+    }
+  };
+
+  const onBack = () => router.back();
 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       <Pressable onPress={onBack} style={styles.iconButton} hitSlop={8}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-          </Pressable>
+        <Ionicons name="chevron-back" size={24} color="#111827" />
+      </Pressable>
 
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.container}>
-          
           <View style={styles.brandWrap}>
             <Text style={styles.brand}>CARRY ON</Text>
             <Text style={styles.tagline}>PLAN. PACK. GO.</Text>
           </View>
 
-          
           <View style={styles.card}>
             <Text style={styles.h1}>Create an account</Text>
             <Text style={styles.sub}>Enter your details to sign up for this app</Text>
@@ -82,7 +85,6 @@ const onBack = () => router.back();
               onChangeText={setUsername}
               placeholder="Username"
               placeholderTextColor="rgba(17,24,39,0.35)"
-              secureTextEntry
               style={styles.input}
             />
 
@@ -95,24 +97,17 @@ const onBack = () => router.back();
               style={styles.input}
             />
 
-            
-
             <View style={styles.btnRow}>
-              <TouchableOpacity onPress={onSignUp} style={styles.btn} activeOpacity={0.9}>
+              <TouchableOpacity onPress={onSignUpPress} style={styles.btn} activeOpacity={0.9}>
                 <Text style={styles.btnText}>SIGN UP</Text>
               </TouchableOpacity>
-
-              
             </View>
-
           </View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
-
-const BLUE = "#3F63F3";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#ffffff" },

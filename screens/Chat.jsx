@@ -1,502 +1,620 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
-function initialsFrom(name) {
-  const parts = String(name || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return (parts[0][0] || "?").toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  where
+} from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
-export default function Chat() {
-  // ✅ starts with ONE fake group chat so it’s not blank
-  const [chats, setChats] = useState([
-    {
-      id: "tokyo-trip-2026",
-      type: "gc",
-      title: "Tokyo Trip 2026",
-      members: ["Ava Chen", "Noah Kim", "Hailey Park", "You"],
-      updatedAt: "9:41 AM",
-      lastMessage: "I think I am most excited to eat their sushi.",
-    },
-  ]);
+const BLUE = "#4967E8";
+const TEXT = "#1F1F1F";
+const BORDER = "#DADADA";
 
+export default function GroupChatScreen() {
   const router = useRouter();
+  const { chatId } = useLocalSearchParams();
+  const currentUser = auth.currentUser;
 
-  const [activeChatId, setActiveChatId] = useState(null);
-
-  // messages stored by chatId
-  const [messagesByChat, setMessagesByChat] = useState({
-  "tokyo-trip-2026": [
-    { id: "m1", fromMe: false, sender: "Ava Chen", text: "Oh?" },
-    { id: "m2", fromMe: false, sender: "Noah Kim", text: "Cool" },
-    { id: "m3", fromMe: false, sender: "Hailey Park", text: "Who’s Excited?" },
-    {
-      id: "m4",
-      fromMe: true,
-      sender: "You",
-      text:
-        "I am! This trip is going to be once in a lifetime. I am so excited to see Mount Fuji, the cherry blossoms, and go Tokyo Drifting.",
-    },
-    { id: "m5", fromMe: true, sender: "You", text: "Wahoo!" },
-    { id: "m6", fromMe: false, sender: "Ava Chen", text: "Omg" },
-    { id: "m7", fromMe: false, sender: "Noah Kim", text: "Those all sound fun!" },
-    { id: "m8", fromMe: false, sender: "Hailey Park", text: "I think I am most excited to eat their sushi." },
-  ],
-});
-
-
-  // UI mode inside SAME file:
-  // "list" | "create" | "room"
-  const [mode, setMode] = useState("list");
-
-  // Create group state
-  const [groupName, setGroupName] = useState("Tokyo Trip 2026");
-  const [memberInput, setMemberInput] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [tripLocation, setTripLocation] = useState("");
+  const [tripData, setTripData] = useState(null);
+  const [tripOwnerId, setTripOwnerId] = useState(null);
+  const [tripId, setTripId] = useState(null);
   const [members, setMembers] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState("");
 
-  // Room message input
-  const [text, setText] = useState("");
+  // Search modal state
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(null);
 
-  const activeChat = useMemo(() => {
-    if (!activeChatId) return null;
-    return chats.find((c) => c.id === activeChatId) || null;
-  }, [activeChatId, chats]);
+  const flatListRef = useRef(null);
 
-  const roomMessages = useMemo(() => {
-    if (!activeChatId) return [];
-    return messagesByChat[activeChatId] || [];
-  }, [activeChatId, messagesByChat]);
+  // Load chat metadata
+  useEffect(() => {
+    const loadChatData = async () => {
+      try {
+        const chatDoc = await getDoc(doc(db, "groupchats", chatId));
+        if (!chatDoc.exists()) return;
 
-  const avatarTop3 = useMemo(() => {
-    const list =
-      mode === "create"
-        ? members
-        : activeChat?.members || [];
-    return list.slice(0, 3);
-  }, [mode, members, activeChat]);
+        const chatData = chatDoc.data();
+        const fetchedTripId = chatData.tripId;
+        const memberUids = chatData.members || [];
+        setTripId(fetchedTripId);
 
-  const avatarExtra = useMemo(() => {
-    const list =
-      mode === "create"
-        ? members
-        : activeChat?.members || [];
-    return Math.max(0, list.length - 3);
-  }, [mode, members, activeChat]);
+        // Find the trip doc by checking each member
+        let foundLocation = "Group Trip";
+        let foundTripData = null;
+        let foundOwnerId = null;
+        for (const uid of memberUids) {
+          try {
+            const tripDoc = await getDoc(doc(db, "users", uid, "trips", fetchedTripId));
+            if (tripDoc.exists()) {
+              foundLocation = tripDoc.data().location || "Group Trip";
+              foundTripData = tripDoc.data();
+              foundOwnerId = uid;
+              break;
+            }
+          } catch (_) {}
+        }
+        setTripLocation(foundLocation);
+        setTripData(foundTripData);
+        setTripOwnerId(foundOwnerId);
 
-  function openChat(chatId) {
-    setActiveChatId(chatId);
-    setMode("room");
-    setText("");
-  }
-
-  function goBackToList() {
-    setMode("list");
-    setActiveChatId(null);
-  }
-
-  function goToCreate() {
-    setMode("create");
-    setGroupName("Tokyo Trip 2026");
-    setMembers([]);
-    setMemberInput("");
-  }
-
-  function addMember() {
-    const v = memberInput.trim();
-    if (!v) return;
-    if (members.includes(v)) return;
-    setMembers((prev) => [...prev, v]);
-    setMemberInput("");
-  }
-
-  function createGroup() {
-    const id = "gc_" + Date.now().toString();
-    const title = groupName.trim() || "New Group";
-    const memberList = members.length ? members : ["You"];
-
-    const newChat = {
-      id,
-      type: "gc",
-      title,
-      members: memberList,
-      updatedAt: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-      lastMessage: "",
+        // Get member usernames
+        const memberData = await Promise.all(
+          memberUids.map(async (uid) => {
+            try {
+              const userDoc = await getDoc(doc(db, "users", uid));
+              return {
+                uid,
+                username: userDoc.exists() ? userDoc.data().username || "Unknown" : "Unknown",
+              };
+            } catch (_) {
+              return { uid, username: "Unknown" };
+            }
+          })
+        );
+        setMembers(memberData);
+      } catch (e) {
+        console.error("Error loading chat data:", e);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    setChats((prev) => [newChat, ...prev]);
-    setMessagesByChat((prev) => ({
-      ...prev,
-      [id]: [],
-    }));
+    if (chatId) loadChatData();
+  }, [chatId]);
 
-    // jump straight into the new chat room
-    setActiveChatId(id);
-    setMode("room");
-  }
-
-  function send() {
-    const v = text.trim();
-    if (!v || !activeChatId) return;
-
-    const msg = { id: Date.now().toString(), fromMe: true, sender: "You", text: v };
-
-
-    setMessagesByChat((prev) => ({
-      ...prev,
-      [activeChatId]: [...(prev[activeChatId] || []), msg],
-    }));
-
-    setChats((prev) =>
-      prev.map((c) =>
-        c.id === activeChatId
-          ? {
-              ...c,
-              lastMessage: v,
-              updatedAt: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-            }
-          : c
-      )
+  // Real-time messages listener
+  useEffect(() => {
+    if (!chatId) return;
+    const q = query(
+      collection(db, "groupchats", chatId, "messages"),
+      orderBy("sentAt", "asc")
     );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetched = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setMessages(fetched);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+    return () => unsubscribe();
+  }, [chatId]);
 
-    setText("");
-
-    
-  }
-
-  const onBack = () => {
-    // If using expo-router later: router.back()
-    router.back()
+  const handleSend = async () => {
+    const text = inputText.trim();
+    if (!text || !currentUser) return;
+    setInputText("");
+    try {
+      await addDoc(collection(db, "groupchats", chatId, "messages"), {
+        text,
+        senderId: currentUser.uid,
+        sentAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("Error sending message:", e);
+    }
   };
 
-  // ===========================
-  // RENDER: LIST
-  // ===========================
-  if (mode === "list") {
+  // Search users by username
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const q = query(
+        collection(db, "users"),
+        where("username", "==", searchQuery.trim())
+      );
+      const snapshot = await getDocs(q);
+      const results = snapshot.docs
+        .map((d) => ({ uid: d.id, ...d.data() }))
+        .filter((u) => u.uid !== currentUser.uid) // exclude self
+        .filter((u) => !members.find((m) => m.uid === u.uid)); // exclude existing members
+      setSearchResults(results);
+    } catch (e) {
+      console.error("Search error:", e);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // Send invite to a user
+  const handleSendInvite = async (targetUser) => {
+    if (!tripData || !tripId) return;
+    setSendingInvite(targetUser.uid);
+    try {
+      // Get current user's username
+      const currentUserDoc = await getDoc(doc(db, "users", currentUser.uid));
+      const currentUsername = currentUserDoc.data()?.username || "Someone";
+
+      // Write invite to target user's invites subcollection
+      await addDoc(collection(db, "users", targetUser.uid, "invites"), {
+        tripId,
+        chatId,
+        fromUid: currentUser.uid,
+        fromUsername: currentUsername,
+        tripOwnerId: tripOwnerId,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
+
+      setSearchResults((prev) => prev.filter((u) => u.uid !== targetUser.uid));
+      setSearchQuery("");
+    } catch (e) {
+      console.error("Error sending invite:", e);
+    } finally {
+      setSendingInvite(null);
+    }
+  };
+
+  const getUsernameById = (uid) => {
+    const member = members.find((m) => m.uid === uid);
+    return member ? member.username : "Unknown";
+  };
+
+  const formatTime = (timestamp) => {
+    if (!timestamp?.toDate) return "";
+    const d = timestamp.toDate();
     return (
-      <View style={styles.screen}>
-        <View style={styles.topRow}>
-
-        <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-          </TouchableOpacity>
-
-          <Text style={styles.h1}>Chat</Text>
-
-          <Pressable onPress={goToCreate} style={({ pressed }) => [styles.newBtn, pressed && { opacity: 0.9 }]}>
-            <Text style={styles.newBtnText}>+ New Group</Text>
-          </Pressable>
-        </View>
-
-        <FlatList
-          data={chats}
-          keyExtractor={(item) => item.id}
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-          contentContainerStyle={{ paddingBottom: 24 }}
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => openChat(item.id)}
-              style={({ pressed }) => [styles.chatRow, pressed && { opacity: 0.92 }]}
-            >
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.chatTitle} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                {!!item.lastMessage && (
-                  <Text style={styles.preview} numberOfLines={1}>
-                    {item.lastMessage}
-                  </Text>
-                )}
-              </View>
-              <Text style={styles.time}>{item.updatedAt}</Text>
-            </Pressable>
-          )}
-        />
-      </View>
+      d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+      ", " +
+      d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
     );
-  }
+  };
 
-  // ===========================
-  // Shared TOP BAR (like screenshot)
-  // ===========================
-  const TopBar = (
-    <>
-      <View style={{ height: 40 }} />
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={mode === "room" ? goBackToList : () => setMode("list")}
-          style={styles.backBtn}
-        >
-          <Text style={styles.backTxt}>‹</Text>
-        </Pressable>
+  const renderMessage = ({ item, index }) => {
+    const isMe = item.senderId === currentUser?.uid;
+    const showSender =
+      !isMe &&
+      (index === 0 || messages[index - 1]?.senderId !== item.senderId);
+    const showTimestamp =
+      index === 0 ||
+      (item.sentAt &&
+        messages[index - 1]?.sentAt &&
+        item.sentAt.toDate() - messages[index - 1].sentAt.toDate() > 5 * 60 * 1000);
 
-        <View style={styles.avatarRow}>
-          {avatarTop3.map((name, idx) => (
-            <View key={name + idx} style={[styles.avatar, { marginLeft: idx === 0 ? 0 : -8 }]}>
-              <Text style={styles.avatarTxt}>{initialsFrom(name)}</Text>
-            </View>
-          ))}
-          {avatarExtra > 0 && (
-            <View style={[styles.avatar, styles.avatarExtra, { marginLeft: avatarTop3.length === 0 ? 0 : -8 }]}>
-              <Text style={styles.avatarExtraTxt}>+{avatarExtra}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-
-      <View style={styles.searchWrap}>
-        <TextInput
-          value={memberInput}
-          onChangeText={setMemberInput}
-          placeholder="Search users to add"
-          placeholderTextColor="rgba(15,23,42,0.45)"
-          style={styles.search}
-          returnKeyType="done"
-          onSubmitEditing={addMember}
-        />
-        <Pressable onPress={addMember} style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.9 }]}>
-          <Text style={styles.addBtnTxt}>+</Text>
-        </Pressable>
-      </View>
-    </>
-  );
-
-  // ===========================
-  // RENDER: CREATE
-  // ===========================
-  if (mode === "create") {
     return (
-      <View style={styles.screenPlain}>
-        {TopBar}
-
-        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14 }}>
-          <Text style={styles.sectionLabel}>Group name</Text>
-          <TextInput
-            value={groupName}
-            onChangeText={setGroupName}
-            placeholder="Enter group name"
-            placeholderTextColor="rgba(15,23,42,0.45)"
-            style={styles.groupName}
-          />
-
-          <Text style={[styles.sectionLabel, { marginTop: 16 }]}>Members</Text>
-          {members.length === 0 ? (
-            <Text style={styles.helper}>Type a name/email above and tap + to add people.</Text>
-          ) : (
-            <View style={styles.chips}>
-              {members.map((m) => (
-                <View key={m} style={styles.chip}>
-                  <Text style={styles.chipTxt}>{m}</Text>
-                </View>
-              ))}
+      <View>
+        {showTimestamp && item.sentAt && (
+          <Text style={styles.timestamp}>{formatTime(item.sentAt)}</Text>
+        )}
+        <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
+          {!isMe && (
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {getUsernameById(item.senderId).charAt(0).toUpperCase()}
+              </Text>
             </View>
           )}
-
-          <Pressable onPress={createGroup} style={({ pressed }) => [styles.createBtn, pressed && { opacity: 0.92 }]}>
-            <Text style={styles.createBtnTxt}>Create Group Chat</Text>
-          </Pressable>
+          <View style={styles.bubbleWrap}>
+            {showSender && (
+              <Text style={styles.senderName}>{getUsernameById(item.senderId)}</Text>
+            )}
+            <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+              <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+                {item.text}
+              </Text>
+            </View>
+          </View>
         </View>
       </View>
     );
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ActivityIndicator style={{ flex: 1 }} size="large" color={BLUE} />
+      </SafeAreaView>
+    );
   }
 
-  // ===========================
-  // RENDER: ROOM (chat UI like screenshot)
-  // ===========================
   return (
-    <KeyboardAvoidingView
-      style={styles.screenPlain}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      {TopBar}
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="dark-content" />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.iconButton} hitSlop={8}>
+            <Ionicons name="chevron-back" size={24} color={TEXT} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>{tripLocation}</Text>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              {members.map((m) => m.username).join(", ")}
+            </Text>
+          </View>
+          {/* Add member button */}
+          <Pressable
+            onPress={() => setShowSearch(true)}
+            style={styles.iconButton}
+            hitSlop={8}
+          >
+            <Ionicons name="person-add-outline" size={22} color={BLUE} />
+          </Pressable>
+        </View>
 
-      <View style={styles.chatHeader}>
-        <Text style={styles.roomTitle}>{activeChat?.title || "Chat"}</Text>
-        <Text style={styles.roomTime}>
-          {new Date().toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })},{" "}
-          {new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-        </Text>
-      </View>
+        {/* Messages */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={renderMessage}
+          contentContainerStyle={styles.messagesList}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() =>
+            flatListRef.current?.scrollToEnd({ animated: false })
+          }
+        />
 
-      <FlatList
-        data={roomMessages}
-        keyExtractor={(m) => m.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 10 }}
-        renderItem={({ item }) => (
-            <View style={{ marginBottom: 10, alignSelf: item.fromMe ? "flex-end" : "flex-start" }}>
-                <View style={[styles.bubble, item.fromMe ? styles.mine : styles.theirs]}>
-                <Text style={[styles.msg, item.fromMe ? styles.msgMine : styles.msgTheirs]}>
-                    {item.text}
-                </Text>
-                </View>
+        {/* Input */}
+        <View style={styles.inputRow}>
+          <TextInput
+            style={styles.input}
+            placeholder="Message..."
+            placeholderTextColor="#aaa"
+            value={inputText}
+            onChangeText={setInputText}
+            multiline
+            maxLength={500}
+          />
+          <TouchableOpacity
+            style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
+            onPress={handleSend}
+            disabled={!inputText.trim()}
+          >
+            <Ionicons name="arrow-up" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
 
-                {/* Name under message */}
-                <Text style={[styles.senderName, item.fromMe ? styles.senderMe : styles.senderThem]}>
-                {item.sender}
-                </Text>
+      {/* Add Member Modal */}
+      <Modal visible={showSearch} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Member</Text>
+              <Pressable
+                onPress={() => {
+                  setShowSearch(false);
+                  setSearchQuery("");
+                  setSearchResults([]);
+                }}
+              >
+                <Ionicons name="close" size={24} color={TEXT} />
+              </Pressable>
             </View>
+
+            {/* Search bar */}
+            <View style={styles.searchRow}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by username"
+                placeholderTextColor="#aaa"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+                onSubmitEditing={handleSearch}
+              />
+              <TouchableOpacity style={styles.searchBtn} onPress={handleSearch}>
+                {searching ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="search" size={18} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Results */}
+            {searchResults.length === 0 && !searching && searchQuery.trim() !== "" && (
+              <Text style={styles.noResults}>No users found</Text>
             )}
 
-      />
-
-      <View style={styles.inputRow}>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          placeholder="Message..."
-          placeholderTextColor="rgba(15,23,42,0.45)"
-          style={styles.input}
-          onSubmitEditing={send}
-          returnKeyType="send"
-        />
-        <Pressable onPress={send} style={({ pressed }) => [styles.sendBtn, pressed && { opacity: 0.92 }]}>
-          <Text style={styles.sendTxt}>Send</Text>
-        </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+            {searchResults.map((user) => (
+              <View key={user.uid} style={styles.resultRow}>
+                <View style={styles.resultAvatar}>
+                  <Text style={styles.resultAvatarText}>
+                    {user.username.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={styles.resultUsername}>{user.username}</Text>
+                <TouchableOpacity
+                  style={styles.inviteBtn}
+                  onPress={() => handleSendInvite(user)}
+                  disabled={sendingInvite === user.uid}
+                >
+                  {sendingInvite === user.uid ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.inviteBtnText}>Invite</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  // List page
-  screen: { flex: 1, backgroundColor: "#fff", paddingTop: 60, paddingHorizontal: 18 },
-  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  h1: { fontSize: 26, fontWeight: "700", color: "#0f172a" },
-
-  newBtn: { backgroundColor: "rgba(15,23,42,0.06)", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
-  newBtnText: { fontWeight: "800", color: "#0f172a", fontSize: 13 },
-
-  chatRow: {
+  safe: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: "rgba(15,23,42,0.04)",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
   },
-  chatTitle: { fontSize: 16, fontWeight: "700", color: "#0f172a" },
-  preview: { fontSize: 14, color: "rgba(15,23,42,0.6)", marginTop: 2 },
-  time: { fontSize: 12, color: "rgba(15,23,42,0.5)", marginLeft: 10 },
-
-  // Modal-ish screens
-  screenPlain: { flex: 1, backgroundColor: "#fff" },
-
-  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, marginBottom: 10 },
-  backBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  backTxt: { fontSize: 28, color: "#0f172a", marginTop: -4 },
-
-  avatarRow: { flexDirection: "row", alignItems: "center", marginLeft: 6 },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.08)",
+  iconButton: {
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#fff",
   },
-  avatarTxt: { fontSize: 12, fontWeight: "800", color: "rgba(15,23,42,0.75)" },
-  avatarExtra: { backgroundColor: "rgba(15,23,42,0.10)" },
-  avatarExtraTxt: { fontSize: 12, fontWeight: "800", color: "rgba(15,23,42,0.65)" },
-
-  searchWrap: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
-  search: {
+  headerCenter: {
     flex: 1,
-    height: 40,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.06)",
-    paddingHorizontal: 14,
-    color: "#0f172a",
+    alignItems: "center",
+    paddingHorizontal: 8,
   },
-  addBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.10)",
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: TEXT,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 1,
+  },
+  messagesList: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    gap: 4,
+  },
+  timestamp: {
+    textAlign: "center",
+    fontSize: 12,
+    color: "#aaa",
+    marginVertical: 10,
+  },
+  messageRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    marginBottom: 4,
+    gap: 8,
+  },
+  messageRowMe: {
+    flexDirection: "row-reverse",
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#E0E5FF",
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 2,
   },
-  addBtnTxt: { fontSize: 22, fontWeight: "900", color: "#0f172a", marginTop: -2 },
-
-  chatHeader: { alignItems: "center", paddingTop: 18, paddingBottom: 10 },
-  roomTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
-  roomTime: { marginTop: 6, fontSize: 12, color: "rgba(15,23,42,0.5)" },
-
-  bubble: { maxWidth: "78%", paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, marginBottom: 10 },
-  mine: { alignSelf: "flex-end", backgroundColor: "#2563eb", borderTopRightRadius: 6 },
-  theirs: { alignSelf: "flex-start", backgroundColor: "rgba(15,23,42,0.08)", borderTopLeftRadius: 6 },
-  msg: { fontSize: 14, lineHeight: 18 },
-  msgMine: { color: "#fff" },
-  msgTheirs: { color: "rgba(15,23,42,0.88)" },
-
+  avatarText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: BLUE,
+  },
+  bubbleWrap: {
+    maxWidth: "72%",
+  },
+  senderName: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 3,
+    marginLeft: 4,
+  },
+  bubble: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 18,
+  },
+  bubbleMe: {
+    backgroundColor: BLUE,
+    borderBottomRightRadius: 4,
+  },
+  bubbleThem: {
+    backgroundColor: "#F0F0F0",
+    borderBottomLeftRadius: 4,
+  },
+  bubbleText: {
+    fontSize: 15,
+    color: TEXT,
+    lineHeight: 21,
+  },
+  bubbleTextMe: {
+    color: "#fff",
+  },
   inputRow: {
     flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
+    alignItems: "flex-end",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderTopWidth: 1,
-    borderColor: "rgba(15,23,42,0.08)",
+    borderTopColor: BORDER,
     gap: 10,
+    backgroundColor: "#fff",
   },
   input: {
     flex: 1,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: TEXT,
+    maxHeight: 100,
+    backgroundColor: "#fafafa",
+  },
+  sendBtn: {
+    width: 40,
     height: 40,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.06)",
-    paddingHorizontal: 14,
-    color: "#0f172a",
-  },
-  sendBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: "#2563eb" },
-  sendTxt: { color: "#fff", fontWeight: "800" },
-
-  sectionLabel: { fontSize: 13, fontWeight: "800", color: "rgba(15,23,42,0.75)", marginBottom: 8 },
-  groupName: {
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "rgba(15,23,42,0.06)",
-    paddingHorizontal: 14,
-    color: "#0f172a",
-  },
-  helper: { color: "rgba(15,23,42,0.55)", fontSize: 13 },
-
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999, backgroundColor: "rgba(15,23,42,0.06)" },
-  chipTxt: { color: "rgba(15,23,42,0.75)", fontWeight: "700", fontSize: 13 },
-
-  createBtn: {
-    marginTop: 20,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: "#0f172a",
+    borderRadius: 20,
+    backgroundColor: BLUE,
     alignItems: "center",
     justifyContent: "center",
   },
-  createBtnTxt: { color: "#fff", fontWeight: "900" },
-  senderName: {
-  marginTop: 4,
-  fontSize: 12,
-  color: "rgba(15,23,42,0.55)",
-},
-senderMe: {
-  textAlign: "right",
-},
-senderThem: {
-  textAlign: "left",
-},
+  sendBtnDisabled: {
+    backgroundColor: "#c0c0c0",
+  },
 
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    minHeight: 300,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: TEXT,
+  },
+  searchRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: TEXT,
+    backgroundColor: "#fafafa",
+  },
+  searchBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: BLUE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noResults: {
+    textAlign: "center",
+    color: "#aaa",
+    fontSize: 14,
+    marginTop: 12,
+  },
+  resultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    gap: 12,
+  },
+  resultAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#E0E5FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resultAvatarText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: BLUE,
+  },
+  resultUsername: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: TEXT,
+  },
+  inviteBtn: {
+    backgroundColor: BLUE,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 70,
+    alignItems: "center",
+  },
+  inviteBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
 });

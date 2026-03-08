@@ -2,18 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where, } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
 const BLUE = "#4967E8";
@@ -280,7 +280,14 @@ export default function UpcomingScreen() {
                   {trip.withGroup && (
                     <TouchableOpacity
                       style={styles.actionBtn}
-                      onPress={() => router.push({ pathname: "/groupchat", params: { tripId: trip.id } })}
+                      onPress={async () => {
+                        const q = query(collection(db, "groupchats"), where("tripId", "==", trip.id));
+                        const snapshot = await getDocs(q);
+                        if (!snapshot.empty) {
+                          const chatId = snapshot.docs[0].id;
+                          router.push({ pathname: "/chat", params: { chatId } });
+                        }
+                      }}
                     >
                       <Ionicons name="chatbubbles-outline" size={22} color={BLUE} />
                       <Text style={styles.actionLabel}>Group Chat</Text>

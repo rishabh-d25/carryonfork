@@ -117,6 +117,7 @@ export default function Dashboard() {
   const onPastTripsArrowPress = () => router.push("/pasttriplist");
   const onCreateTripPress = () => router.push("/createtrip");
   const onUpcomingPress = () => router.push("/upcoming");
+  const onInvitesPress = () => router.push("/invites");
   const onBackPress = () => router.back();
 
   return (
@@ -293,6 +294,14 @@ export default function Dashboard() {
           activeOpacity={0.9}
         >
           <Text style={styles.createBtnText}>upcoming</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={onInvitesPress}
+          style={styles.createBtn}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.createBtnText}>invites</Text>
         </TouchableOpacity>
 
         <View style={{ height: 24 }} />

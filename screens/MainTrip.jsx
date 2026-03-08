@@ -13,6 +13,9 @@ import {
   View,
 } from "react-native";
 
+import { collection, getDocs, query, where, } from "firebase/firestore";
+import { db } from "../firebaseConfig";
+
 const BLUE = "#3F63F3";
 
 export default function MainTrip() {
@@ -111,7 +114,14 @@ export default function MainTrip() {
           <Text style={styles.headerTitle}>{tripTitle}</Text>
 
           <Pressable
-            onPress={() => router.push("/chat")}
+            onPress={async () => {
+                        const q = query(collection(db, "groupchats"), where("tripId", "==", tripId));
+                        const snapshot = await getDocs(q);
+                        if (!snapshot.empty) {
+                          const chatId = snapshot.docs[0].id;
+                          router.push({ pathname: "/chat", params: { chatId } });
+                        }
+                      }}
             style={[styles.iconButton, { justifyContent: "center" }]}
             hitSlop={8}
           >
