@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { useCallback, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -17,55 +17,105 @@ import {
 } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
+const BLUE = "#3F63F3";
+
+function getTimestampMillis(value) {
+  if (!value) return 0;
+
+  if (typeof value?.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  if (typeof value?.seconds === "number") {
+    return value.seconds * 1000;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function startOfTodayMillis() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+function isPastTrip(trip) {
+  const endMillis = getTimestampMillis(trip.endDate);
+  return endMillis > 0 && endMillis < startOfTodayMillis();
+}
+
 export default function Dashboard() {
   const router = useRouter();
-  const [pastTrips, setPastTrips] = useState([]);
-  const [loadingPastTrips, setLoadingPastTrips] = useState(true);
+  const [trips, setTrips] = useState([]);
+  const [loadingTrips, setLoadingTrips] = useState(true);
 
   const MAIN_TRIP_IMAGE = require("../assets/images/main-trip.jpg");
 
-  const loadPastTrips = async () => {
+  const loadTrips = async () => {
     try {
-      setLoadingPastTrips(true);
+      setLoadingTrips(true);
 
       const user = auth.currentUser;
       if (!user) {
-        setPastTrips([]);
-        setLoadingPastTrips(false);
+        setTrips([]);
+        setLoadingTrips(false);
         return;
       }
 
       const tripsRef = collection(db, "users", user.uid, "trips");
-      const q = query(tripsRef, where("status", "==", "completed"));
-      const snapshot = await getDocs(q);
+      const snapshot = await getDocs(tripsRef);
 
-      const trips = snapshot.docs.map((doc) => ({
+      const loadedTrips = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       }));
 
-      setPastTrips(trips);
+      loadedTrips.sort((a, b) => {
+        const aCreated = getTimestampMillis(a.createdAt);
+        const bCreated = getTimestampMillis(b.createdAt);
+        return bCreated - aCreated;
+      });
+
+      setTrips(loadedTrips);
     } catch (error) {
-      console.log("Error loading past trips:", error);
-      setPastTrips([]);
+      console.log("Error loading trips:", error);
+      setTrips([]);
     } finally {
-      setLoadingPastTrips(false);
+      setLoadingTrips(false);
     }
   };
 
   useFocusEffect(
     useCallback(() => {
-      loadPastTrips();
+      loadTrips();
     }, [])
   );
 
-  const onTokyoLabelPress = () => router.push("/maintrip");
-  const onPastTripsArrowPress = () => router.push("/pasttriplist");
-  const onPastTripPress = (trip) =>
-    router.push({ pathname: "/trip/[id]", params: { id: trip.id } });
+  const activeTrips = useMemo(() => {
+    return trips.filter((trip) => !isPastTrip(trip));
+  }, [trips]);
 
-  const onCreateTripPress = () => router.push("/createtrip");;
-  const onMainTripPress = () => router.push("/maintrip");
+  const pastTrips = useMemo(() => {
+    return trips.filter((trip) => isPastTrip(trip));
+  }, [trips]);
+
+  const mainTrip = useMemo(() => {
+    if (activeTrips.length === 0) return null;
+    return activeTrips[0];
+  }, [activeTrips]);
+
+  const onOpenTrip = (trip) => {
+    router.push({
+      pathname: "/maintrip",
+      params: {
+        tripId: trip.id,
+        title: trip.title || trip.location || "Trip",
+      },
+    });
+  };
+
+  const onPastTripsArrowPress = () => router.push("/pasttriplist");
+  const onCreateTripPress = () => router.push("/createtrip");
   const onUpcomingPress = () => router.push("/upcoming");
   const onBackPress = () => router.back();
 
@@ -92,25 +142,91 @@ export default function Dashboard() {
           <Text style={styles.subtitle}>PLAN. PACK. GO.</Text>
         </View>
 
-        <TouchableOpacity
-          onPress={onMainTripPress}
-          style={styles.heroButton}
-          activeOpacity={0.9}
-        >
-          <ImageBackground
-            source={MAIN_TRIP_IMAGE}
-            style={styles.heroImage}
-            imageStyle={styles.heroImageRadius}
+        {loadingTrips ? (
+          <View style={styles.heroLoadingWrap}>
+            <ActivityIndicator size="large" color={BLUE} />
+          </View>
+        ) : mainTrip ? (
+          <TouchableOpacity
+            onPress={() => onOpenTrip(mainTrip)}
+            style={styles.heroButton}
+            activeOpacity={0.9}
           >
-            <TouchableOpacity
-              onPress={onTokyoLabelPress}
-              activeOpacity={0.85}
-              style={styles.heroLabelButton}
+            <ImageBackground
+              source={MAIN_TRIP_IMAGE}
+              style={styles.heroImage}
+              imageStyle={styles.heroImageRadius}
             >
-              <Text style={styles.heroLabelText}>Tokyo, Japan</Text>
-            </TouchableOpacity>
-          </ImageBackground>
-        </TouchableOpacity>
+              <View style={styles.heroLabelButton}>
+                <Text style={styles.heroLabelText}>
+                  {mainTrip.title || mainTrip.location || "Trip"}
+                </Text>
+              </View>
+            </ImageBackground>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.noMainTripCard}>
+            <Text style={styles.noMainTripText}>No current trips</Text>
+            <Text style={styles.noMainTripSubtext}>
+              Create a current or upcoming trip to make it show up here.
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>All Current / Upcoming Trips</Text>
+        </View>
+
+        {loadingTrips ? (
+          <View style={styles.tripsState}>
+            <ActivityIndicator size="small" color={BLUE} />
+          </View>
+        ) : activeTrips.length === 0 ? (
+          <View style={styles.tripsState}>
+            <Text style={styles.emptyTripsText}>No current trips yet</Text>
+          </View>
+        ) : (
+          <View style={styles.tripList}>
+            {activeTrips.map((trip) => (
+              <TouchableOpacity
+                key={trip.id}
+                style={styles.tripCard}
+                activeOpacity={0.85}
+                onPress={() => onOpenTrip(trip)}
+              >
+                <View style={styles.tripCardLeft}>
+                  {trip.imageUrl ? (
+                    <Image source={{ uri: trip.imageUrl }} style={styles.tripThumb} />
+                  ) : (
+                    <View style={styles.tripThumbPlaceholder}>
+                      <Ionicons name="airplane" size={22} color="#9CA3AF" />
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.tripCardBody}>
+                  <Text style={styles.tripCardTitle} numberOfLines={1}>
+                    {trip.title || trip.location || "Trip"}
+                  </Text>
+
+                  {!!trip.description && (
+                    <Text style={styles.tripCardSubtext} numberOfLines={2}>
+                      {trip.description}
+                    </Text>
+                  )}
+
+                  {!!trip.location && trip.title !== trip.location && (
+                    <Text style={styles.tripCardMeta} numberOfLines={1}>
+                      {trip.location}
+                    </Text>
+                  )}
+                </View>
+
+                <Ionicons name="chevron-forward" size={18} color="#6B7280" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         <View style={styles.pastHeader}>
           <Text style={styles.sectionTitle}>Past Trips</Text>
@@ -124,9 +240,9 @@ export default function Dashboard() {
           </TouchableOpacity>
         </View>
 
-        {loadingPastTrips ? (
+        {loadingTrips ? (
           <View style={styles.pastTripsState}>
-            <ActivityIndicator size="small" color="#3F63F3" />
+            <ActivityIndicator size="small" color={BLUE} />
           </View>
         ) : pastTrips.length === 0 ? (
           <View style={styles.pastTripsState}>
@@ -141,7 +257,7 @@ export default function Dashboard() {
             {pastTrips.slice(0, 7).map((t) => (
               <TouchableOpacity
                 key={t.id}
-                onPress={() => onPastTripPress(t)}
+                onPress={() => onOpenTrip(t)}
                 style={styles.tripCircleBtn}
                 activeOpacity={0.85}
               >
@@ -156,7 +272,7 @@ export default function Dashboard() {
                 </View>
 
                 <Text style={styles.tripCircleLabel} numberOfLines={1}>
-                  {t.title || "Trip"}
+                  {t.title || t.location || "Trip"}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -168,7 +284,7 @@ export default function Dashboard() {
           style={styles.createBtn}
           activeOpacity={0.9}
         >
-          <Text style={styles.createBtnText}>CREATE TRIP! (doesn't work rn)</Text>
+          <Text style={styles.createBtnText}>CREATE TRIP!</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -184,8 +300,6 @@ export default function Dashboard() {
     </SafeAreaView>
   );
 }
-
-const BLUE = "#3F63F3";
 
 const styles = StyleSheet.create({
   safe: {
@@ -246,9 +360,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 10,
     bottom: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
@@ -262,16 +373,111 @@ const styles = StyleSheet.create({
     color: "rgba(17,24,39,0.85)",
   },
 
-  pastHeader: {
-    marginTop: 18,
-    flexDirection: "row",
+  heroLoadingWrap: {
+    height: 185,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+  },
+
+  noMainTripCard: {
+    height: 185,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  noMainTripText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  noMainTripSubtext: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+  },
+
+  sectionHeader: {
+    marginTop: 18,
+    marginBottom: 10,
   },
   sectionTitle: {
     fontSize: 15,
     fontWeight: "700",
     color: "#111827",
+  },
+
+  tripsState: {
+    paddingTop: 18,
+    paddingBottom: 10,
+    minHeight: 80,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  emptyTripsText: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+
+  tripList: {
+    gap: 12,
+  },
+  tripCard: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  tripCardLeft: {
+    marginRight: 12,
+  },
+  tripThumb: {
+    width: 58,
+    height: 58,
+    borderRadius: 12,
+    resizeMode: "cover",
+  },
+  tripThumbPlaceholder: {
+    width: 58,
+    height: 58,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tripCardBody: {
+    flex: 1,
+    marginRight: 10,
+  },
+  tripCardTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  tripCardSubtext: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  tripCardMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#9CA3AF",
+  },
+
+  pastHeader: {
+    marginTop: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   pastArrowBtn: {
     width: 28,

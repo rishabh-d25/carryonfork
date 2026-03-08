@@ -21,7 +21,6 @@ import {
   getTripItemById,
   upsertTripItem,
   formatTime,
-  getTripItems,
   saveTripItems,
 } from "../utils/tripStorage";
 
@@ -62,6 +61,7 @@ export default function AddActivity() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
+  const tripId = params.tripId ? String(params.tripId) : null;
   const editingId = params.editId ? String(params.editId) : null;
   const presetCategory = params.presetCategory
     ? String(params.presetCategory)
@@ -86,48 +86,53 @@ export default function AddActivity() {
 
   useEffect(() => {
     async function loadEditItem() {
-      if (!editingId) return;
+      if (!editingId || !tripId) return;
 
-      setLoadingEditData(true);
-      const item = await getTripItemById(editingId);
+      try {
+        setLoadingEditData(true);
+        const item = await getTripItemById(tripId, editingId);
 
-      if (item) {
-        const mIndex = MONTHS.indexOf(item.month);
-        const yIndex = YEARS.indexOf(item.year);
+        if (item) {
+          const mIndex = MONTHS.indexOf(item.month);
+          const yIndex = YEARS.indexOf(item.year);
 
-        const loadedForm = {
-          description: item.description || "",
-          location: item.location || "",
-          reservationNumber: item.reservationNumber || "",
-          price: item.price ?? 50,
-          monthIndex: mIndex >= 0 ? mIndex : 0,
-          yearIndex: yIndex >= 0 ? yIndex : 1,
-          selectedDay: item.day || 9,
-          timeValue: (() => {
-            const d = new Date(2026, 0, 9, 12, 0);
-            d.setHours(item.hour24 ?? 12);
-            d.setMinutes(item.minute ?? 0);
-            d.setSeconds(0);
-            return d;
-          })(),
-          attachments: Array.isArray(item.attachments) ? item.attachments : [],
-        };
+          const loadedForm = {
+            description: item.description || "",
+            location: item.location || "",
+            reservationNumber: item.reservationNumber || "",
+            price: item.price ?? 50,
+            monthIndex: mIndex >= 0 ? mIndex : 0,
+            yearIndex: yIndex >= 0 ? yIndex : 1,
+            selectedDay: item.day || 9,
+            timeValue: (() => {
+              const d = new Date(2026, 0, 9, 12, 0);
+              d.setHours(item.hour24 ?? 12);
+              d.setMinutes(item.minute ?? 0);
+              d.setSeconds(0);
+              return d;
+            })(),
+            attachments: Array.isArray(item.attachments) ? item.attachments : [],
+          };
 
-        setCategory(item.category || "activity");
-        setTabForms({
-          activity: createEmptyForm(),
-          transportation: createEmptyForm(),
-          food: createEmptyForm(),
-          hotel: createEmptyForm(),
-          [item.category || "activity"]: loadedForm,
-        });
+          setCategory(item.category || "activity");
+          setTabForms({
+            activity: createEmptyForm(),
+            transportation: createEmptyForm(),
+            food: createEmptyForm(),
+            hotel: createEmptyForm(),
+            [item.category || "activity"]: loadedForm,
+          });
+        }
+      } catch (error) {
+        console.log("Load edit item error:", error);
+        Alert.alert("Error", error.message || "Could not load item.");
+      } finally {
+        setLoadingEditData(false);
       }
-
-      setLoadingEditData(false);
     }
 
     loadEditItem();
-  }, [editingId]);
+  }, [editingId, tripId]);
 
   const currentForm = tabForms[category];
   const currentMonth = MONTHS[currentForm.monthIndex];
@@ -311,7 +316,6 @@ export default function AddActivity() {
     const year = YEARS[form.yearIndex];
 
     return {
-      id: Date.now().toString() + Math.random().toString(),
       category: categoryKey,
       description: form.description.trim(),
       location: form.location.trim(),
@@ -325,11 +329,15 @@ export default function AddActivity() {
       minute: form.timeValue.getMinutes(),
       timeLabel: formatTime(form.timeValue),
       attachments: form.attachments,
-      createdAt: new Date().toISOString(),
     };
   }
 
   async function onAddAllItems() {
+    if (!tripId) {
+      Alert.alert("Error", "Missing trip ID.");
+      return;
+    }
+
     if (editingId) {
       if (!currentForm.description.trim()) {
         Alert.alert("Missing description", "Please enter a description.");
@@ -353,8 +361,16 @@ export default function AddActivity() {
         attachments: currentForm.attachments,
       };
 
-      await upsertTripItem(item);
-      router.push("/tripitinerary");
+      try {
+        await upsertTripItem(tripId, item);
+        router.push({
+          pathname: "/tripitinerary",
+          params: { tripId },
+        });
+      } catch (error) {
+        console.log("Update item error:", error);
+        Alert.alert("Error", error.message || "Could not update item.");
+      }
       return;
     }
 
@@ -379,15 +395,16 @@ export default function AddActivity() {
         buildItemFromForm(categoryKey, form)
       );
 
-      const existing = await getTripItems();
-      const updated = [...existing, ...newItems];
-      await saveTripItems(updated);
+      await saveTripItems(tripId, newItems);
 
       resetAllForms();
-      router.push("/tripitinerary");
+      router.push({
+        pathname: "/tripitinerary",
+        params: { tripId },
+      });
     } catch (error) {
       console.log("Add all items error:", error);
-      Alert.alert("Error", "Could not save trip items.");
+      Alert.alert("Error", error.message || "Could not save trip items.");
     }
   }
 
@@ -420,7 +437,12 @@ export default function AddActivity() {
           </Text>
 
           <Pressable
-            onPress={() => router.push("/tripitinerary")}
+            onPress={() =>
+              router.push({
+                pathname: "/tripitinerary",
+                params: { tripId },
+              })
+            }
             style={styles.iconButton}
           >
             <Ionicons name="grid-outline" size={22} color={TEXT} />

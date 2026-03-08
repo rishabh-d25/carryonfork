@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -12,43 +13,88 @@ import {
   Text,
   View,
 } from "react-native";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
+
+function getTimestampMillis(value) {
+  if (!value) return 0;
+
+  if (typeof value?.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  if (typeof value?.seconds === "number") {
+    return value.seconds * 1000;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function startOfTodayMillis() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+function isPastTrip(trip) {
+  const endMillis = getTimestampMillis(trip.endDate);
+  return endMillis > 0 && endMillis < startOfTodayMillis();
+}
+
+function formatDateRange(startDate, endDate) {
+  const startMillis = getTimestampMillis(startDate);
+  const endMillis = getTimestampMillis(endDate);
+
+  if (!startMillis || !endMillis) return "";
+
+  const start = new Date(startMillis);
+  const end = new Date(endMillis);
+
+  const startText = `${String(start.getMonth() + 1).padStart(2, "0")}/${String(
+    start.getDate()
+  ).padStart(2, "0")}/${String(start.getFullYear()).slice(-2)}`;
+
+  const endText = `${String(end.getMonth() + 1).padStart(2, "0")}/${String(
+    end.getDate()
+  ).padStart(2, "0")}/${String(end.getFullYear()).slice(-2)}`;
+
+  return `${startText}-${endText}`;
+}
 
 export default function PastTripList() {
   const router = useRouter();
-  const [trips, setTrips] = useState([]);
+  const [pastTrips, setPastTrips] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const loadTrips = async () => {
+  const loadPastTrips = async () => {
     try {
       setLoading(true);
 
       const user = auth.currentUser;
       if (!user) {
-        setTrips([]);
+        setPastTrips([]);
         setLoading(false);
         return;
       }
 
       const tripsRef = collection(db, "users", user.uid, "trips");
-      let snapshot;
+      const snapshot = await getDocs(tripsRef);
 
-      try {
-        snapshot = await getDocs(query(tripsRef, orderBy("startDate", "desc")));
-      } catch {
-        snapshot = await getDocs(tripsRef);
-      }
+      const loadedTrips = snapshot.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        .filter((trip) => isPastTrip(trip))
+        .sort((a, b) => {
+          const aEnd = getTimestampMillis(a.endDate);
+          const bEnd = getTimestampMillis(b.endDate);
+          return bEnd - aEnd;
+        });
 
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      setTrips(data);
+      setPastTrips(loadedTrips);
     } catch (error) {
       console.log("Error loading past trips:", error);
-      setTrips([]);
+      setPastTrips([]);
     } finally {
       setLoading(false);
     }
@@ -56,77 +102,85 @@ export default function PastTripList() {
 
   useFocusEffect(
     useCallback(() => {
-      loadTrips();
+      loadPastTrips();
     }, [])
   );
 
-  const openTrip = (trip) => {
-    router.push({ pathname: "/trip/[id]", params: { id: trip.id } });
+  const onOpenTrip = (trip) => {
+    router.push({
+      pathname: "/maintrip",
+      params: {
+        tripId: trip.id,
+        title: trip.title || trip.location || "Trip",
+      },
+    });
   };
 
-  const renderTripImage = (trip) => {
-    if (trip.imageUrl) {
-      return <Image source={{ uri: trip.imageUrl }} style={styles.thumb} />;
-    }
-
-    return (
-      <View style={[styles.thumb, styles.placeholderThumb]}>
-        <Ionicons name="airplane" size={26} color="#9CA3AF" />
-      </View>
-    );
-  };
+  const tripCards = useMemo(() => {
+    return pastTrips.map((trip) => ({
+      ...trip,
+      dateText: formatDateRange(trip.startDate, trip.endDate),
+    }));
+  }, [pastTrips]);
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar barStyle="dark-content" />
 
-      <View style={styles.topRow}>
-        <Pressable
-          onPress={() => router.replace("/travelhistory")}
-          style={styles.iconButton}
-          hitSlop={8}
-        >
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color="#111827" />
         </Pressable>
-
-        <Text style={styles.title}>Past Trips</Text>
-
-        <View style={styles.iconButton} />
+        <Text style={styles.headerTitle}>Past Trips</Text>
+        <View style={{ width: 24 }} />
       </View>
 
       {loading ? (
-        <View style={styles.centerState}>
+        <View style={styles.centerWrap}>
           <ActivityIndicator size="large" color="#3F63F3" />
         </View>
-      ) : trips.length === 0 ? (
-        <View style={styles.centerState}>
-          <Ionicons name="map-outline" size={34} color="#9CA3AF" />
-          <Text style={styles.emptyTitle}>No past trips yet</Text>
-          <Text style={styles.emptyText}>
-            Trips you save under your account will show up here.
-          </Text>
+      ) : tripCards.length === 0 ? (
+        <View style={styles.centerWrap}>
+          <Text style={styles.emptyText}>No past trips yet.</Text>
         </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
         >
-          {trips.map((t) => (
-            <Pressable key={t.id} onPress={() => openTrip(t)} style={styles.row}>
-              {renderTripImage(t)}
+          {tripCards.map((trip) => (
+            <Pressable
+              key={trip.id}
+              style={styles.card}
+              onPress={() => onOpenTrip(trip)}
+            >
+              {trip.imageUrl ? (
+                <Image source={{ uri: trip.imageUrl }} style={styles.cardImage} />
+              ) : (
+                <View style={styles.placeholderImage}>
+                  <Ionicons name="airplane" size={26} color="#9CA3AF" />
+                </View>
+              )}
 
-              <View style={styles.textCol}>
-                <Text style={styles.tripTitle}>
-                  {t.title || "Untitled Trip"}
+              <View style={styles.cardBody}>
+                <Text style={styles.cardTitle}>
+                  {trip.title || trip.location || "Trip"}
                 </Text>
-                <Text style={styles.tripDates}>
-                  {t.dates || "No dates added"}
-                </Text>
+
+                {!!trip.dateText && (
+                  <Text style={styles.cardDates}>{trip.dateText}</Text>
+                )}
+
+                {!!trip.description && (
+                  <Text style={styles.cardDescription} numberOfLines={2}>
+                    {trip.description}
+                  </Text>
+                )}
               </View>
+
+              <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </Pressable>
           ))}
-
-          <View style={{ height: 24 }} />
         </ScrollView>
       )}
     </SafeAreaView>
@@ -134,84 +188,98 @@ export default function PastTripList() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fff" },
+  safe: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
 
-  topRow: {
+  header: {
     paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 6,
+    paddingTop: 10,
+    paddingBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+
+  backBtn: {
+    width: 24,
     alignItems: "center",
     justifyContent: "center",
   },
-  title: {
-    fontSize: 18,
+
+  headerTitle: {
+    fontSize: 20,
     fontWeight: "700",
     color: "#111827",
+  },
+
+  centerWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyText: {
+    fontSize: 15,
+    color: "#6B7280",
   },
 
   scroll: {
-    paddingHorizontal: 22,
-    paddingTop: 8,
-    paddingBottom: 10,
-    gap: 22,
+    paddingHorizontal: 18,
+    paddingBottom: 24,
   },
 
-  row: {
+  card: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 18,
-  },
-  thumb: {
-    width: 92,
-    height: 92,
-    borderRadius: 12,
-    backgroundColor: "#F3F4F6",
-  },
-  placeholderThumb: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  textCol: {
-    flex: 1,
-    justifyContent: "center",
-    gap: 6,
-  },
-  tripTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  tripDates: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "rgba(17,24,39,0.75)",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
   },
 
-  centerState: {
-    flex: 1,
+  cardImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 14,
+    resizeMode: "cover",
+    marginRight: 12,
+  },
+
+  placeholderImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 10,
+    marginRight: 12,
   },
-  emptyTitle: {
-    fontSize: 18,
+
+  cardBody: {
+    flex: 1,
+    marginRight: 10,
+  },
+
+  cardTitle: {
+    fontSize: 16,
     fontWeight: "700",
     color: "#111827",
-    marginTop: 4,
   },
-  emptyText: {
-    fontSize: 14,
+
+  cardDates: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#4967E8",
+    fontWeight: "600",
+  },
+
+  cardDescription: {
+    marginTop: 4,
+    fontSize: 13,
     color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 20,
   },
 });

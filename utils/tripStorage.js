@@ -1,61 +1,146 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+// utils/tripStorage.js
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
-export const STORAGE_KEY = "trip_items_v2";
-
-export async function getTripItems() {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (error) {
-    console.log("getTripItems error:", error);
-    return [];
+function requireUser() {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error("User is not logged in.");
   }
+  return user;
 }
 
-export async function saveTripItems(items) {
-  try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch (error) {
-    console.log("saveTripItems error:", error);
+function requireTripId(tripId) {
+  if (!tripId) {
+    throw new Error("Missing tripId.");
   }
+  return String(tripId);
 }
 
-export async function upsertTripItem(item) {
-  const items = await getTripItems();
-  const exists = items.some((x) => x.id === item.id);
-
-  const updated = exists
-    ? items.map((x) => (x.id === item.id ? item : x))
-    : [...items, item];
-
-  await saveTripItems(updated);
-  return updated;
+function tripsCollection() {
+  const user = requireUser();
+  return collection(db, "users", user.uid, "trips");
 }
 
-export async function deleteTripItem(id) {
-  const items = await getTripItems();
-  const updated = items.filter((x) => x.id !== id);
-  await saveTripItems(updated);
-  return updated;
+function tripDoc(tripId) {
+  const user = requireUser();
+  return doc(db, "users", user.uid, "trips", requireTripId(tripId));
 }
 
-export async function getTripItemById(id) {
-  const items = await getTripItems();
-  return items.find((x) => x.id === id) || null;
+function itemsCollection(tripId) {
+  const user = requireUser();
+  return collection(
+    db,
+    "users",
+    user.uid,
+    "trips",
+    requireTripId(tripId),
+    "items"
+  );
 }
 
-export function formatTime(dateObj) {
-  const hours24 = dateObj.getHours();
-  const minutes = dateObj.getMinutes();
-  const suffix = hours24 >= 12 ? "PM" : "AM";
-  let hours12 = hours24 % 12;
-  if (hours12 === 0) hours12 = 12;
-  const mm = String(minutes).padStart(2, "0");
-  return `${hours12}:${mm} ${suffix}`;
+function itemDoc(tripId, itemId) {
+  const user = requireUser();
+  return doc(
+    db,
+    "users",
+    user.uid,
+    "trips",
+    requireTripId(tripId),
+    "items",
+    String(itemId)
+  );
 }
 
-export function toSortableDate(item) {
-  const monthMap = {
+export function formatTime(date) {
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  const minuteText = String(minutes).padStart(2, "0");
+  return `${hour12}:${minuteText} ${suffix}`;
+}
+
+export async function createTrip(trip) {
+  const ref = tripsCollection();
+
+  const payload = {
+    title: trip.title || "Untitled Trip",
+    city: trip.city || "",
+    country: trip.country || "",
+    imageKey: trip.imageKey || "",
+    startDate: trip.startDate || "",
+    endDate: trip.endDate || "",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  const newRef = await addDoc(ref, payload);
+
+  await setDoc(
+    newRef,
+    {
+      id: newRef.id,
+    },
+    { merge: true }
+  );
+
+  return newRef.id;
+}
+
+export async function getTrips() {
+  const snap = await getDocs(query(tripsCollection()));
+  const trips = snap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+  }));
+
+  return trips.sort((a, b) => {
+    const aTime = a.createdAt?.seconds || 0;
+    const bTime = b.createdAt?.seconds || 0;
+    return bTime - aTime;
+  });
+}
+
+export async function getTripById(tripId) {
+  const snap = await getDoc(tripDoc(tripId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
+function normalizeItem(item, docId) {
+  return {
+    id: item.id || docId,
+    category: item.category || "activity",
+    description: item.description || "",
+    location: item.location || "",
+    reservationNumber: item.reservationNumber || "",
+    price: item.price ?? 50,
+    month: item.month || "Jan",
+    year: item.year || 2026,
+    day: item.day || 1,
+    dateLabel: item.dateLabel || "",
+    hour24: item.hour24 ?? 12,
+    minute: item.minute ?? 0,
+    timeLabel: item.timeLabel || "",
+    attachments: Array.isArray(item.attachments) ? item.attachments : [],
+    createdAt: item.createdAt || null,
+    updatedAt: item.updatedAt || null,
+  };
+}
+
+function sortItems(items) {
+  const monthOrder = {
     Jan: 0,
     Feb: 1,
     Mar: 2,
@@ -70,15 +155,65 @@ export function toSortableDate(item) {
     Dec: 11,
   };
 
-  const date = new Date(
-    item.year,
-    monthMap[item.month] ?? 0,
-    item.day ?? 1,
-    item.hour24 ?? 0,
-    item.minute ?? 0,
-    0,
-    0
-  );
+  return [...items].sort((a, b) => {
+    const yearDiff = (a.year || 0) - (b.year || 0);
+    if (yearDiff !== 0) return yearDiff;
 
-  return date.getTime();
+    const monthDiff = (monthOrder[a.month] ?? 0) - (monthOrder[b.month] ?? 0);
+    if (monthDiff !== 0) return monthDiff;
+
+    const dayDiff = (a.day || 0) - (b.day || 0);
+    if (dayDiff !== 0) return dayDiff;
+
+    const hourDiff = (a.hour24 ?? 0) - (b.hour24 ?? 0);
+    if (hourDiff !== 0) return hourDiff;
+
+    return (a.minute ?? 0) - (b.minute ?? 0);
+  });
+}
+
+export async function getTripItems(tripId) {
+  const snap = await getDocs(query(itemsCollection(tripId)));
+  const items = snap.docs.map((d) => normalizeItem(d.data(), d.id));
+  return sortItems(items);
+}
+
+export async function getTripItemById(tripId, itemId) {
+  const snap = await getDoc(itemDoc(tripId, itemId));
+  if (!snap.exists()) return null;
+  return normalizeItem(snap.data(), snap.id);
+}
+
+export async function upsertTripItem(tripId, item) {
+  if (item.id) {
+    await setDoc(
+      itemDoc(tripId, item.id),
+      {
+        ...normalizeItem(item, item.id),
+        id: String(item.id),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return String(item.id);
+  }
+
+  const newRef = await addDoc(itemsCollection(tripId), {
+    ...normalizeItem(item, ""),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  await setDoc(newRef, { id: newRef.id }, { merge: true });
+  return newRef.id;
+}
+
+export async function saveTripItems(tripId, items) {
+  for (const item of items) {
+    await upsertTripItem(tripId, item);
+  }
+}
+
+export async function deleteTripItem(tripId, itemId) {
+  await deleteDoc(itemDoc(tripId, itemId));
 }

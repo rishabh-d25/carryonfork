@@ -1,6 +1,5 @@
-// app/maintrip.jsx
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   Image,
@@ -18,9 +17,10 @@ const BLUE = "#3F63F3";
 
 export default function MainTrip() {
   const router = useRouter();
+  const params = useLocalSearchParams();
 
-  // ✅ set your trip id for this screen
-  const tripId = "tokyo-2026";
+  const tripId = params.tripId ? String(params.tripId) : null;
+  const tripTitle = params.title ? String(params.title) : "Trip";
 
   const tiles = useMemo(
     () => [
@@ -58,17 +58,42 @@ export default function MainTrip() {
 
   const onBack = () => router.back();
 
-  // Buttons
-  const onTodo = () => router.push("/preparation");
+  const onTodo = () =>
+    router.push({
+      pathname: "/preparation",
+      params: { tripId },
+    });
 
-  // ✅ IMPORTANT: push to the route file in /app (app/addactivity.jsx)
   const onAdd = () => {
-    console.log("ADD CLICKED");
-    router.push({ pathname: "/addactivity", params: { tripId } });
+    router.push({
+      pathname: "/addactivity",
+      params: { tripId },
+    });
   };
 
   const onExpenses = () => console.log("Expenses");
-  const onJournal = () => router.push("/journal");
+
+  const onJournal = () =>
+    router.push({
+      pathname: "/journal",
+      params: { tripId },
+    });
+
+  const onItinerary = () =>
+    router.push({
+      pathname: "/tripitinerary",
+      params: { tripId },
+    });
+
+  if (!tripId) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyText}>No trip selected.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -78,13 +103,12 @@ export default function MainTrip() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Top row */}
         <View style={styles.topRow}>
           <Pressable onPress={onBack} style={styles.iconButton} hitSlop={8}>
             <Ionicons name="chevron-back" size={24} color="#111827" />
           </Pressable>
 
-          <Text style={styles.headerTitle}>Tokyo, Japan</Text>
+          <Text style={styles.headerTitle}>{tripTitle}</Text>
 
           <Pressable
             onPress={() => router.push("/chat")}
@@ -97,7 +121,6 @@ export default function MainTrip() {
 
         <Text style={styles.subhead}>Your trips so far...</Text>
 
-        {/* Grid */}
         <View style={styles.grid}>
           {tiles.map((t) => {
             const isActive = activeId === t.id;
@@ -130,13 +153,16 @@ export default function MainTrip() {
           })}
         </View>
 
-        {/* Buttons */}
         <Pressable onPress={onTodo} style={styles.btn}>
-          <Text style={styles.btnText}>My Tokyo To-Do</Text>
+          <Text style={styles.btnText}>My To-Do</Text>
         </Pressable>
 
         <Pressable onPress={onAdd} style={styles.btn}>
           <Text style={styles.btnText}>Add Activity</Text>
+        </Pressable>
+
+        <Pressable onPress={onItinerary} style={styles.btn}>
+          <Text style={styles.btnText}>Trip Itinerary</Text>
         </Pressable>
 
         <Pressable onPress={onExpenses} style={styles.btn}>
@@ -156,6 +182,17 @@ export default function MainTrip() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#fff" },
   scroll: { paddingHorizontal: 18, paddingBottom: 10 },
+
+  emptyWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyText: {
+    fontSize: 16,
+    color: "#111827",
+  },
 
   topRow: {
     paddingTop: Platform.OS === "android" ? 10 : 4,

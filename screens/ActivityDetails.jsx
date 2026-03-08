@@ -1,377 +1,219 @@
+// screens/ActivityDetails.jsx
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useState } from "react";
+import { useState } from "react";
 import {
   Alert,
-  Image,
-  Linking,
-  Modal,
-  Pressable,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import {
-  deleteTripItem,
-  getTripItemById,
-} from "../utils/tripStorage";
+  deleteActivity,
+  updateActivity,
+} from "../utils/itineraryService";
 
-const BLUE = "#4967E8";
-const BG = "#F7F7F7";
-const TEXT = "#1F1F1F";
+const BLUE = "#3F63F3";
+const TEXT = "#1F2937";
 
 export default function ActivityDetails() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const id = String(params.id || "");
 
-  const [item, setItem] = useState(null);
-  const [expandedImage, setExpandedImage] = useState(null);
+  const tripId = params.tripId || "tokyo-2026";
+  const activityId = params.activityId || "";
 
-  const loadItem = useCallback(async () => {
-    if (!id) return;
-    const data = await getTripItemById(id);
-    setItem(data);
-  }, [id]);
+  const [title, setTitle] = useState(params.title || "");
+  const [location, setLocation] = useState(params.location || "");
+  const [date, setDate] = useState(params.date || "");
+  const [time, setTime] = useState(params.time || "");
+  const [notes, setNotes] = useState(params.notes || "");
+  const [type, setType] = useState(params.type || "");
+  const [saving, setSaving] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadItem();
-    }, [loadItem])
-  );
+  async function onSave() {
+    if (!activityId) {
+      Alert.alert("Error", "Missing activity ID.");
+      return;
+    }
 
-  async function onDelete() {
-    Alert.alert("Delete item?", "Are you sure you want to delete this item?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          await deleteTripItem(id);
-          router.push("/tripitinerary");
-        },
-      },
-    ]);
-  }
-
-  async function openDocument(uri) {
     try {
-      await Linking.openURL(uri);
+      setSaving(true);
+
+      await updateActivity(tripId, activityId, {
+        title: title.trim(),
+        location: location.trim(),
+        date: date.trim(),
+        time: time.trim(),
+        notes: notes.trim(),
+        type: type.trim(),
+      });
+
+      Alert.alert("Saved", "Activity updated.");
+      router.back();
     } catch (error) {
-      Alert.alert("Could not open file");
+      Alert.alert("Error", error.message || "Could not update activity.");
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (!item) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingWrap}>
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      </SafeAreaView>
+  function onDelete() {
+    Alert.alert(
+      "Delete Activity",
+      "Are you sure you want to delete this activity?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteActivity(tripId, activityId);
+              router.replace({
+                pathname: "/tripitinerary",
+                params: { tripId },
+              });
+            } catch (error) {
+              Alert.alert("Error", error.message || "Could not delete activity.");
+            }
+          },
+        },
+      ]
     );
   }
 
-  const imageAttachments = (item.attachments || []).filter((x) => x.type === "image");
-  const docAttachments = (item.attachments || []).filter((x) => x.type === "document");
-
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" />
 
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={24} color={TEXT} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Activity Details</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="chevron-back" size={24} color={TEXT} />
-          </Pressable>
+        <Text style={styles.label}>Title</Text>
+        <TextInput value={title} onChangeText={setTitle} style={styles.input} />
 
-          <Text style={styles.title}>Details</Text>
+        <Text style={styles.label}>Type</Text>
+        <TextInput value={type} onChangeText={setType} style={styles.input} />
 
-          <View style={styles.headerButton} />
-        </View>
+        <Text style={styles.label}>Location</Text>
+        <TextInput
+          value={location}
+          onChangeText={setLocation}
+          style={styles.input}
+        />
 
-        <View style={styles.card}>
-          <Text style={styles.category}>{item.category?.toUpperCase()}</Text>
-          <Text style={styles.mainTitle}>{item.description}</Text>
+        <Text style={styles.label}>Date</Text>
+        <TextInput value={date} onChangeText={setDate} style={styles.input} />
 
-          {!!item.location && (
-            <Text style={styles.detailText}>Location: {item.location}</Text>
-          )}
+        <Text style={styles.label}>Time</Text>
+        <TextInput value={time} onChangeText={setTime} style={styles.input} />
 
-          {!!item.dateLabel && (
-            <Text style={styles.detailText}>Date: {item.dateLabel}</Text>
-          )}
+        <Text style={styles.label}>Notes</Text>
+        <TextInput
+          value={notes}
+          onChangeText={setNotes}
+          style={[styles.input, styles.notesInput]}
+          multiline
+        />
 
-          {!!item.timeLabel && (
-            <Text style={styles.detailText}>Time: {item.timeLabel}</Text>
-          )}
+        <TouchableOpacity
+          style={[styles.saveBtn, saving && { opacity: 0.7 }]}
+          onPress={onSave}
+          disabled={saving}
+        >
+          <Text style={styles.saveBtnText}>
+            {saving ? "Saving..." : "Save Changes"}
+          </Text>
+        </TouchableOpacity>
 
-          <Text style={styles.detailText}>Price: ${item.price ?? 0}</Text>
-
-          {!!item.reservationNumber && (
-            <Text style={styles.detailText}>
-              Reservation #: {item.reservationNumber}
-            </Text>
-          )}
-        </View>
-
-        {imageAttachments.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Photos</Text>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {imageAttachments.map((img) => (
-                <Pressable
-                  key={img.id}
-                  onPress={() => setExpandedImage(img.uri)}
-                  style={styles.imageWrap}
-                >
-                  <Image source={{ uri: img.uri }} style={styles.thumb} />
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {docAttachments.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Documents</Text>
-
-            {docAttachments.map((doc) => (
-              <Pressable
-                key={doc.id}
-                style={styles.docRow}
-                onPress={() => openDocument(doc.uri)}
-              >
-                <Ionicons name="document-text-outline" size={22} color={BLUE} />
-                <Text style={styles.docName}>{doc.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-
-        <View style={styles.actionsRow}>
-          <Pressable
-            style={styles.editButton}
-            onPress={() =>
-              router.push({
-                pathname: "/addactivity",
-                params: { editId: item.id },
-              })
-            }
-          >
-            <Text style={styles.editButtonText}>Edit</Text>
-          </Pressable>
-
-          <Pressable style={styles.deleteButton} onPress={onDelete}>
-            <Text style={styles.deleteButtonText}>Delete</Text>
-          </Pressable>
-        </View>
+        <TouchableOpacity style={styles.deleteBtn} onPress={onDelete}>
+          <Text style={styles.deleteBtnText}>Delete Activity</Text>
+        </TouchableOpacity>
       </ScrollView>
-
-      <Modal visible={!!expandedImage} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <Pressable
-            style={styles.modalClose}
-            onPress={() => setExpandedImage(null)}
-          >
-            <Ionicons name="close" size={28} color="#fff" />
-          </Pressable>
-
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.expandedScroll}
-          >
-            {imageAttachments.map((img) => (
-              <View key={img.id} style={styles.expandedImageWrap}>
-                <Image source={{ uri: img.uri }} style={styles.expandedImage} />
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  safe: {
     flex: 1,
-    backgroundColor: BG,
+    backgroundColor: "#fff",
   },
-
-  loadingWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  loadingText: {
-    fontSize: 16,
-    color: TEXT,
-  },
-
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-
   header: {
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 20,
   },
-
-  headerButton: {
-    width: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  title: {
+  headerTitle: {
     fontSize: 20,
     fontWeight: "700",
     color: TEXT,
   },
-
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
+  content: {
     padding: 16,
-    borderWidth: 1,
-    borderColor: "#ECECEC",
-    marginBottom: 18,
+    paddingBottom: 30,
   },
-
-  category: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: BLUE,
+  label: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: TEXT,
     marginBottom: 8,
+    marginTop: 4,
   },
-
-  mainTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: TEXT,
-    marginBottom: 10,
-  },
-
-  detailText: {
-    fontSize: 14,
-    color: "#555",
-    marginBottom: 6,
-  },
-
-  section: {
-    marginBottom: 20,
-  },
-
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: TEXT,
-    marginBottom: 10,
-  },
-
-  imageWrap: {
-    marginRight: 10,
-  },
-
-  thumb: {
-    width: 140,
-    height: 140,
-    borderRadius: 14,
-    backgroundColor: "#EEE",
-  },
-
-  docRow: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
+  input: {
     borderWidth: 1,
-    borderColor: "#ECECEC",
-    padding: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-    gap: 10,
-  },
-
-  docName: {
-    flex: 1,
-    fontSize: 14,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
     color: TEXT,
+    backgroundColor: "#FAFAFA",
+    marginBottom: 12,
   },
-
-  actionsRow: {
-    flexDirection: "row",
-    gap: 12,
+  notesInput: {
+    minHeight: 100,
+    textAlignVertical: "top",
   },
-
-  editButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
+  saveBtn: {
     backgroundColor: BLUE,
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+    marginTop: 10,
   },
-
-  editButtonText: {
+  saveBtnText: {
     color: "#fff",
     fontWeight: "700",
     fontSize: 16,
   },
-
-  deleteButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 10,
+  deleteBtn: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    backgroundColor: "#FEF2F2",
+    paddingVertical: 16,
+    borderRadius: 14,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FDECEC",
   },
-
-  deleteButtonText: {
-    color: "#D9534F",
+  deleteBtnText: {
+    color: "#DC2626",
     fontWeight: "700",
     fontSize: 16,
-  },
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.92)",
-    justifyContent: "center",
-  },
-
-  modalClose: {
-    position: "absolute",
-    top: 60,
-    right: 20,
-    zIndex: 20,
-  },
-
-  expandedScroll: {
-    alignItems: "center",
-  },
-
-  expandedImageWrap: {
-    width: 390,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-
-  expandedImage: {
-    width: "100%",
-    height: 420,
-    resizeMode: "contain",
   },
 });
