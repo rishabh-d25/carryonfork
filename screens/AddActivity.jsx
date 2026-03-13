@@ -21,7 +21,6 @@ import {
   getTripItemById,
   upsertTripItem,
   formatTime,
-  saveTripItems,
 } from "../utils/tripStorage";
 
 const BLUE = "#4967E8";
@@ -63,9 +62,7 @@ export default function AddActivity() {
 
   const tripId = params.tripId ? String(params.tripId) : null;
   const editingId = params.editId ? String(params.editId) : null;
-  const presetCategory = params.presetCategory
-    ? String(params.presetCategory)
-    : null;
+  const presetCategory = params.presetCategory ? String(params.presetCategory) : null;
 
   const [category, setCategory] = useState("activity");
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -211,80 +208,98 @@ export default function AddActivity() {
   }
 
   async function pickFromLibrary() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Please allow photo library access.");
-      return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission needed", "Please allow photo library access.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+      });
+
+      if (result.canceled) return;
+
+      const newItems = result.assets.map((asset) => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: "image",
+        uri: asset.uri,
+        name: asset.fileName || "Photo",
+        mimeType: asset.mimeType || "image/jpeg",
+      }));
+
+      updateCurrentForm({
+        attachments: [...currentForm.attachments, ...newItems],
+      });
+    } catch (error) {
+      console.log("pickFromLibrary error:", error);
+      Alert.alert("Error", "Could not add photo.");
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-      allowsEditing: false,
-    });
-
-    if (result.canceled) return;
-
-    const newItems = result.assets.map((asset) => ({
-      id: `${Date.now()}-${Math.random()}`,
-      type: "image",
-      uri: asset.uri,
-      name: asset.fileName || "Photo",
-    }));
-
-    updateCurrentForm({
-      attachments: [...currentForm.attachments, ...newItems],
-    });
   }
 
   async function takePhoto() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Please allow camera access.");
-      return;
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission needed", "Please allow camera access.");
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: false,
+      });
+
+      if (result.canceled) return;
+
+      const newItems = result.assets.map((asset) => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: "image",
+        uri: asset.uri,
+        name: asset.fileName || "Camera Photo",
+        mimeType: asset.mimeType || "image/jpeg",
+      }));
+
+      updateCurrentForm({
+        attachments: [...currentForm.attachments, ...newItems],
+      });
+    } catch (error) {
+      console.log("takePhoto error:", error);
+      Alert.alert("Error", "Could not take photo.");
     }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-      allowsEditing: false,
-    });
-
-    if (result.canceled) return;
-
-    const newItems = result.assets.map((asset) => ({
-      id: `${Date.now()}-${Math.random()}`,
-      type: "image",
-      uri: asset.uri,
-      name: asset.fileName || "Camera Photo",
-    }));
-
-    updateCurrentForm({
-      attachments: [...currentForm.attachments, ...newItems],
-    });
   }
 
   async function pickDocument() {
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
 
-    if (result.canceled) return;
+      if (result.canceled) return;
 
-    const file = result.assets[0];
+      const file = result.assets[0];
 
-    const newDoc = {
-      id: `${Date.now()}-${Math.random()}`,
-      type: "document",
-      uri: file.uri,
-      name: file.name || "Document",
-      mimeType: file.mimeType || "",
-    };
+      const newDoc = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: "document",
+        uri: file.uri,
+        name: file.name || "Document",
+        mimeType: file.mimeType || "",
+      };
 
-    updateCurrentForm({
-      attachments: [...currentForm.attachments, newDoc],
-    });
+      updateCurrentForm({
+        attachments: [...currentForm.attachments, newDoc],
+      });
+    } catch (error) {
+      console.log("pickDocument error:", error);
+      Alert.alert("Error", "Could not add document.");
+    }
   }
 
   function onCameraPress() {
@@ -311,11 +326,12 @@ export default function AddActivity() {
     );
   }
 
-  function buildItemFromForm(categoryKey, form) {
+  function buildItemFromForm(categoryKey, form, existingId = null) {
     const month = MONTHS[form.monthIndex];
     const year = YEARS[form.yearIndex];
 
     return {
+      ...(existingId ? { id: existingId } : {}),
       category: categoryKey,
       description: form.description.trim(),
       location: form.location.trim(),
@@ -344,26 +360,11 @@ export default function AddActivity() {
         return;
       }
 
-      const item = {
-        id: editingId,
-        category,
-        description: currentForm.description.trim(),
-        location: currentForm.location.trim(),
-        reservationNumber: currentForm.reservationNumber.trim(),
-        price: currentForm.price,
-        month: MONTHS[currentForm.monthIndex],
-        year: YEARS[currentForm.yearIndex],
-        day: currentForm.selectedDay,
-        dateLabel: `${MONTHS[currentForm.monthIndex]} ${currentForm.selectedDay}, ${YEARS[currentForm.yearIndex]}`,
-        hour24: currentForm.timeValue.getHours(),
-        minute: currentForm.timeValue.getMinutes(),
-        timeLabel: formatTime(currentForm.timeValue),
-        attachments: currentForm.attachments,
-      };
+      const item = buildItemFromForm(category, currentForm, editingId);
 
       try {
         await upsertTripItem(tripId, item);
-        router.push({
+        router.replace({
           pathname: "/tripitinerary",
           params: { tripId },
         });
@@ -383,22 +384,18 @@ export default function AddActivity() {
 
     const invalidEntry = filledEntries.find(([, form]) => !form.description.trim());
     if (invalidEntry) {
-      Alert.alert(
-        "Missing description",
-        "Any tab you use needs a description before saving."
-      );
+      Alert.alert("Missing description", "Any tab you use needs a description before saving.");
       return;
     }
 
     try {
-      const newItems = filledEntries.map(([categoryKey, form]) =>
-        buildItemFromForm(categoryKey, form)
-      );
-
-      await saveTripItems(tripId, newItems);
+      for (const [categoryKey, form] of filledEntries) {
+        const item = buildItemFromForm(categoryKey, form);
+        await upsertTripItem(tripId, item);
+      }
 
       resetAllForms();
-      router.push({
+      router.replace({
         pathname: "/tripitinerary",
         params: { tripId },
       });
@@ -423,10 +420,7 @@ export default function AddActivity() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} style={styles.iconButton}>
             <Ionicons name="chevron-back" size={24} color={TEXT} />
@@ -457,11 +451,7 @@ export default function AddActivity() {
           </View>
         )}
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryRow}
-        >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
           {CATEGORIES.map((item) => {
             const active = item.key === category;
             return (
@@ -470,12 +460,7 @@ export default function AddActivity() {
                 style={[styles.categoryPill, active && styles.categoryPillActive]}
                 onPress={() => setCategory(item.key)}
               >
-                <Text
-                  style={[
-                    styles.categoryPillText,
-                    active && styles.categoryPillTextActive,
-                  ]}
-                >
+                <Text style={[styles.categoryPillText, active && styles.categoryPillTextActive]}>
                   {item.label}
                 </Text>
               </Pressable>
@@ -510,11 +495,7 @@ export default function AddActivity() {
         <View style={styles.locationWrap}>
           <TextInput
             style={styles.locationInput}
-            placeholder={
-              category === "hotel"
-                ? "Enter hotel address or city"
-                : "Enter name of location"
-            }
+            placeholder={category === "hotel" ? "Enter hotel address or city" : "Enter name of location"}
             placeholderTextColor="#B8B8B8"
             value={currentForm.location}
             onChangeText={(text) => updateCurrentForm({ location: text })}
@@ -532,13 +513,8 @@ export default function AddActivity() {
         />
 
         <Text style={styles.label}>Time</Text>
-        <Pressable
-          style={styles.timeButton}
-          onPress={() => setShowTimePicker(true)}
-        >
-          <Text style={styles.timeButtonText}>
-            {formatTime(currentForm.timeValue)}
-          </Text>
+        <Pressable style={styles.timeButton} onPress={() => setShowTimePicker(true)}>
+          <Text style={styles.timeButtonText}>{formatTime(currentForm.timeValue)}</Text>
           <Ionicons name="time-outline" size={20} color={TEXT} />
         </Pressable>
 
@@ -583,11 +559,7 @@ export default function AddActivity() {
         </View>
 
         {currentForm.attachments.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.attachmentsRow}
-          >
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentsRow}>
             {currentForm.attachments.map((item) => (
               <View key={item.id} style={styles.attachmentCard}>
                 {item.type === "image" ? (
@@ -656,9 +628,7 @@ export default function AddActivity() {
                   style={[styles.dayCell, selected && styles.selectedDayCell]}
                   onPress={() => updateCurrentForm({ selectedDay: cell.value })}
                 >
-                  <Text
-                    style={[styles.dayText, selected && styles.selectedDayText]}
-                  >
+                  <Text style={[styles.dayText, selected && styles.selectedDayText]}>
                     {cell.value}
                   </Text>
                 </Pressable>
@@ -678,356 +648,52 @@ export default function AddActivity() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: BG,
-  },
-
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 28,
-    backgroundColor: BG,
-  },
-
-  loadingWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  loadingText: {
-    fontSize: 16,
-    color: TEXT,
-  },
-
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 8,
-    marginBottom: 18,
-  },
-
-  iconButton: {
-    width: 34,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  headerTitle: {
-    fontSize: 18,
-    color: TEXT,
-    fontFamily: "serif",
-  },
-
-  draftBanner: {
-    backgroundColor: "#EEF2FF",
-    borderColor: "#D9E0FF",
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-
-  draftBannerText: {
-    color: BLUE,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  categoryRow: {
-    paddingBottom: 12,
-    gap: 8,
-  },
-
-  categoryPill: {
-    paddingHorizontal: 14,
-    height: 38,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: BORDER,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
-  },
-
-  categoryPillActive: {
-    backgroundColor: BLUE,
-    borderColor: BLUE,
-  },
-
-  categoryPillText: {
-    color: TEXT,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  categoryPillTextActive: {
-    color: "#fff",
-  },
-
-  label: {
-    fontSize: 16,
-    color: TEXT,
-    marginBottom: 10,
-    fontFamily: "serif",
-  },
-
-  input: {
-    height: 52,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    fontSize: 15,
-    color: TEXT,
-    marginBottom: 14,
-  },
-
-  locationWrap: {
-    height: 52,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 26,
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-
-  locationInput: {
-    flex: 1,
-    fontSize: 15,
-    color: TEXT,
-    marginRight: 8,
-  },
-
-  timeButton: {
-    height: 52,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    marginBottom: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  timeButtonText: {
-    fontSize: 15,
-    color: TEXT,
-  },
-
-  priceHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-    paddingHorizontal: 8,
-  },
-
-  priceLabel: {
-    fontSize: 16,
-    color: TEXT,
-    fontWeight: "600",
-  },
-
-  priceValue: {
-    fontSize: 15,
-    color: "#4C4C4C",
-  },
-
-  priceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 14,
-  },
-
-  sliderWrap: {
-    flex: 1,
-    marginRight: 14,
-  },
-
-  cameraButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: BLUE,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-  },
-
-  attachmentsRow: {
-    paddingBottom: 14,
-    gap: 10,
-  },
-
-  attachmentCard: {
-    width: 110,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    padding: 8,
-    marginRight: 10,
-    position: "relative",
-  },
-
-  attachmentImage: {
-    width: "100%",
-    height: 68,
-    borderRadius: 8,
-    backgroundColor: "#EEE",
-    marginBottom: 6,
-  },
-
-  docPreview: {
-    width: "100%",
-    height: 68,
-    borderRadius: 8,
-    backgroundColor: "#EEF2FF",
-    marginBottom: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  attachmentName: {
-    fontSize: 12,
-    color: TEXT,
-  },
-
-  removeAttachmentButton: {
-    position: "absolute",
-    top: -6,
-    right: -6,
-    backgroundColor: "#fff",
-    borderRadius: 999,
-  },
-
-  calendarCard: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 16,
-  },
-
-  calendarTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-
-  arrowButton: {
-    width: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  dropdownRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-
-  fakeDropdownMonth: {
-    minWidth: 70,
-    height: 34,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-  },
-
-  fakeDropdownYear: {
-    minWidth: 86,
-    height: 34,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-  },
-
-  dropdownText: {
-    fontSize: 14,
-    color: TEXT,
-  },
-
-  weekRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-
-  weekText: {
-    width: "14.28%",
-    textAlign: "center",
-    color: "#8D8D8D",
-    fontSize: 12,
-  },
-
-  daysGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-
-  dayCell: {
-    width: "14.28%",
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    marginBottom: 4,
-  },
-
-  selectedDayCell: {
-    backgroundColor: BLUE,
-  },
-
-  dayText: {
-    fontSize: 17,
-    color: "#2B2B2B",
-  },
-
-  selectedDayText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-
-  createButton: {
-    marginTop: 16,
-    backgroundColor: BLUE,
-    height: 52,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  createButtonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontFamily: "serif",
-  },
+  safeArea: { flex: 1, backgroundColor: BG },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 28, backgroundColor: BG },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingText: { fontSize: 16, color: TEXT },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 18 },
+  iconButton: { width: 34, alignItems: "center", justifyContent: "center" },
+  headerTitle: { fontSize: 18, color: TEXT, fontFamily: "serif" },
+  draftBanner: { backgroundColor: "#EEF2FF", borderColor: "#D9E0FF", borderWidth: 1, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 12 },
+  draftBannerText: { color: BLUE, fontSize: 14, fontWeight: "600" },
+  categoryRow: { paddingBottom: 12, gap: 8 },
+  categoryPill: { paddingHorizontal: 14, height: 38, borderRadius: 20, backgroundColor: "#fff", borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", marginRight: 8 },
+  categoryPillActive: { backgroundColor: BLUE, borderColor: BLUE },
+  categoryPillText: { color: TEXT, fontSize: 14, fontWeight: "600" },
+  categoryPillTextActive: { color: "#fff" },
+  label: { fontSize: 16, color: TEXT, marginBottom: 10, fontFamily: "serif" },
+  input: { height: 52, borderWidth: 1, borderColor: BORDER, borderRadius: 10, backgroundColor: "#fff", paddingHorizontal: 14, fontSize: 15, color: TEXT, marginBottom: 14 },
+  locationWrap: { height: 52, borderWidth: 1, borderColor: BORDER, borderRadius: 26, backgroundColor: "#fff", paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  locationInput: { flex: 1, fontSize: 15, color: TEXT, marginRight: 8 },
+  timeButton: { height: 52, borderWidth: 1, borderColor: BORDER, borderRadius: 10, backgroundColor: "#fff", paddingHorizontal: 14, marginBottom: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  timeButtonText: { fontSize: 15, color: TEXT },
+  priceHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6, paddingHorizontal: 8 },
+  priceLabel: { fontSize: 16, color: TEXT, fontWeight: "600" },
+  priceValue: { fontSize: 15, color: "#4C4C4C" },
+  priceRow: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
+  sliderWrap: { flex: 1, marginRight: 14 },
+  cameraButton: { width: 44, height: 44, borderRadius: 10, borderWidth: 2, borderColor: BLUE, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  attachmentsRow: { paddingBottom: 14, gap: 10 },
+  attachmentCard: { width: 110, backgroundColor: "#fff", borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 8, marginRight: 10, position: "relative" },
+  attachmentImage: { width: "100%", height: 68, borderRadius: 8, backgroundColor: "#EEE", marginBottom: 6 },
+  docPreview: { width: "100%", height: 68, borderRadius: 8, backgroundColor: "#EEF2FF", marginBottom: 6, alignItems: "center", justifyContent: "center" },
+  attachmentName: { fontSize: 12, color: TEXT },
+  removeAttachmentButton: { position: "absolute", top: -6, right: -6, backgroundColor: "#fff", borderRadius: 999 },
+  calendarCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: BORDER, borderRadius: 16, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 16 },
+  calendarTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  arrowButton: { width: 24, alignItems: "center", justifyContent: "center" },
+  dropdownRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  fakeDropdownMonth: { minWidth: 70, height: 34, borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  fakeDropdownYear: { minWidth: 86, height: 34, borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  dropdownText: { fontSize: 14, color: TEXT },
+  weekRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8, paddingHorizontal: 4 },
+  weekText: { width: "14.28%", textAlign: "center", color: "#8D8D8D", fontSize: 12 },
+  daysGrid: { flexDirection: "row", flexWrap: "wrap" },
+  dayCell: { width: "14.28%", aspectRatio: 1, alignItems: "center", justifyContent: "center", borderRadius: 10, marginBottom: 4 },
+  selectedDayCell: { backgroundColor: BLUE },
+  dayText: { fontSize: 17, color: "#2B2B2B" },
+  selectedDayText: { color: "#fff", fontWeight: "600" },
+  createButton: { marginTop: 16, backgroundColor: BLUE, height: 52, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  createButtonText: { color: "#fff", fontSize: 18, fontFamily: "serif" },
 });

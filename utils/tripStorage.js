@@ -1,219 +1,257 @@
-// utils/tripStorage.js
+import { auth, db, storage } from "../firebaseConfig";
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
   getDoc,
   getDocs,
-  query,
-  serverTimestamp,
   setDoc,
 } from "firebase/firestore";
-import { auth, db } from "../firebaseConfig";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 function requireUser() {
   const user = auth.currentUser;
   if (!user) {
-    throw new Error("User is not logged in.");
+    throw new Error("User is not signed in.");
   }
   return user;
 }
 
-function requireTripId(tripId) {
-  if (!tripId) {
-    throw new Error("Missing tripId.");
-  }
-  return String(tripId);
+function isRemoteUri(uri) {
+  return typeof uri === "string" && /^https?:\/\//i.test(uri);
 }
 
-function tripsCollection() {
-  const user = requireUser();
-  return collection(db, "users", user.uid, "trips");
+function sanitizeFileName(name = "file") {
+  return String(name).replace(/[^\w.\-]/g, "_");
 }
 
-function tripDoc(tripId) {
-  const user = requireUser();
-  return doc(db, "users", user.uid, "trips", requireTripId(tripId));
+function getExtensionFromUri(uri = "") {
+  const clean = String(uri).split("?")[0];
+  const parts = clean.split(".");
+  return parts.length > 1 ? parts.pop() : "";
 }
 
-function itemsCollection(tripId) {
-  const user = requireUser();
-  return collection(
-    db,
-    "users",
-    user.uid,
-    "trips",
-    requireTripId(tripId),
-    "items"
-  );
-}
+function uriToBlob(uri) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
 
-function itemDoc(tripId, itemId) {
-  const user = requireUser();
-  return doc(
-    db,
-    "users",
-    user.uid,
-    "trips",
-    requireTripId(tripId),
-    "items",
-    String(itemId)
-  );
-}
+    xhr.onload = function () {
+      resolve(xhr.response);
+    };
 
-export function formatTime(date) {
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const suffix = hours >= 12 ? "PM" : "AM";
-  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
-  const minuteText = String(minutes).padStart(2, "0");
-  return `${hour12}:${minuteText} ${suffix}`;
-}
+    xhr.onerror = function () {
+      reject(new TypeError("Failed to convert file URI to blob."));
+    };
 
-export async function createTrip(trip) {
-  const ref = tripsCollection();
-
-  const payload = {
-    title: trip.title || "Untitled Trip",
-    city: trip.city || "",
-    country: trip.country || "",
-    imageKey: trip.imageKey || "",
-    startDate: trip.startDate || "",
-    endDate: trip.endDate || "",
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-
-  const newRef = await addDoc(ref, payload);
-
-  await setDoc(
-    newRef,
-    {
-      id: newRef.id,
-    },
-    { merge: true }
-  );
-
-  return newRef.id;
-}
-
-export async function getTrips() {
-  const snap = await getDocs(query(tripsCollection()));
-  const trips = snap.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  }));
-
-  return trips.sort((a, b) => {
-    const aTime = a.createdAt?.seconds || 0;
-    const bTime = b.createdAt?.seconds || 0;
-    return bTime - aTime;
+    xhr.responseType = "blob";
+    xhr.open("GET", uri, true);
+    xhr.send(null);
   });
 }
 
-export async function getTripById(tripId) {
-  const snap = await getDoc(tripDoc(tripId));
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
-}
+function normalizeAttachment(attachment) {
+  if (!attachment) return null;
 
-function normalizeItem(item, docId) {
+  const downloadURL = attachment.downloadURL || attachment.uri || "";
+
   return {
-    id: item.id || docId,
-    category: item.category || "activity",
-    description: item.description || "",
-    location: item.location || "",
-    reservationNumber: item.reservationNumber || "",
-    price: item.price ?? 50,
-    month: item.month || "Jan",
-    year: item.year || 2026,
-    day: item.day || 1,
-    dateLabel: item.dateLabel || "",
-    hour24: item.hour24 ?? 12,
-    minute: item.minute ?? 0,
-    timeLabel: item.timeLabel || "",
-    attachments: Array.isArray(item.attachments) ? item.attachments : [],
-    createdAt: item.createdAt || null,
-    updatedAt: item.updatedAt || null,
+    id: attachment.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    type: attachment.type || "document",
+    name: attachment.name || "Attachment",
+    uri: downloadURL,
+    downloadURL,
+    mimeType: attachment.mimeType || "",
+    storagePath: attachment.storagePath || "",
   };
 }
 
-function sortItems(items) {
-  const monthOrder = {
-    Jan: 0,
-    Feb: 1,
-    Mar: 2,
-    Apr: 3,
-    May: 4,
-    Jun: 5,
-    Jul: 6,
-    Aug: 7,
-    Sep: 8,
-    Oct: 9,
-    Nov: 10,
-    Dec: 11,
+function normalizeItem(item) {
+  const attachments = Array.isArray(item?.attachments)
+    ? item.attachments.map(normalizeAttachment).filter(Boolean)
+    : [];
+
+  return {
+    ...item,
+    attachments,
   };
+}
 
-  return [...items].sort((a, b) => {
-    const yearDiff = (a.year || 0) - (b.year || 0);
-    if (yearDiff !== 0) return yearDiff;
+export function formatTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
 
-    const monthDiff = (monthOrder[a.month] ?? 0) - (monthOrder[b.month] ?? 0);
-    if (monthDiff !== 0) return monthDiff;
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const suffix = hours >= 12 ? "PM" : "AM";
 
-    const dayDiff = (a.day || 0) - (b.day || 0);
-    if (dayDiff !== 0) return dayDiff;
+  if (hours === 0) hours = 12;
+  else if (hours > 12) hours -= 12;
 
-    const hourDiff = (a.hour24 ?? 0) - (b.hour24 ?? 0);
-    if (hourDiff !== 0) return hourDiff;
+  return `${hours}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
 
-    return (a.minute ?? 0) - (b.minute ?? 0);
+export async function uploadTripAttachment(tripId, itemId, attachment) {
+  const user = requireUser();
+
+  if (!tripId || !itemId || !attachment) {
+    throw new Error("Missing tripId, itemId, or attachment.");
+  }
+
+  if (attachment.downloadURL || isRemoteUri(attachment.uri)) {
+    return normalizeAttachment({
+      ...attachment,
+      downloadURL: attachment.downloadURL || attachment.uri,
+      uri: attachment.downloadURL || attachment.uri,
+    });
+  }
+
+  const originalUri = attachment.uri;
+  if (!originalUri) {
+    throw new Error("Attachment is missing a local URI.");
+  }
+
+  const blob = await uriToBlob(originalUri);
+
+  const extFromName = attachment.name?.includes(".")
+    ? attachment.name.split(".").pop()
+    : "";
+  const extFromUri = getExtensionFromUri(originalUri);
+  const ext = extFromName || extFromUri || (attachment.type === "image" ? "jpg" : "dat");
+
+  const baseName = sanitizeFileName(
+    attachment.name || `${attachment.type || "file"}.${ext}`
+  );
+
+  const storagePath = `users/${user.uid}/trips/${tripId}/items/${itemId}/${Date.now()}-${baseName}`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, blob, {
+    contentType:
+      attachment.mimeType ||
+      (attachment.type === "image" ? `image/${ext}` : "application/octet-stream"),
+  });
+
+  if (blob && typeof blob.close === "function") {
+    blob.close();
+  }
+
+  const downloadURL = await getDownloadURL(storageRef);
+
+  return normalizeAttachment({
+    ...attachment,
+    uri: downloadURL,
+    downloadURL,
+    storagePath,
   });
 }
 
 export async function getTripItems(tripId) {
-  const snap = await getDocs(query(itemsCollection(tripId)));
-  const items = snap.docs.map((d) => normalizeItem(d.data(), d.id));
-  return sortItems(items);
+  const user = requireUser();
+
+  if (!tripId) return [];
+
+  const itemsRef = collection(
+    db,
+    "users",
+    user.uid,
+    "trips",
+    String(tripId),
+    "items"
+  );
+
+  const snapshot = await getDocs(itemsRef);
+
+  return snapshot.docs.map((docSnap) =>
+    normalizeItem({
+      id: docSnap.id,
+      ...docSnap.data(),
+    })
+  );
 }
 
 export async function getTripItemById(tripId, itemId) {
-  const snap = await getDoc(itemDoc(tripId, itemId));
-  if (!snap.exists()) return null;
-  return normalizeItem(snap.data(), snap.id);
+  const user = requireUser();
+
+  if (!tripId || !itemId) return null;
+
+  const itemRef = doc(
+    db,
+    "users",
+    user.uid,
+    "trips",
+    String(tripId),
+    "items",
+    String(itemId)
+  );
+
+  const snapshot = await getDoc(itemRef);
+
+  if (!snapshot.exists()) return null;
+
+  return normalizeItem({
+    id: snapshot.id,
+    ...snapshot.data(),
+  });
 }
 
 export async function upsertTripItem(tripId, item) {
-  if (item.id) {
-    await setDoc(
-      itemDoc(tripId, item.id),
-      {
-        ...normalizeItem(item, item.id),
-        id: String(item.id),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-    return String(item.id);
+  const user = requireUser();
+
+  if (!tripId || !item) {
+    throw new Error("Missing tripId or item.");
   }
 
-  const newRef = await addDoc(itemsCollection(tripId), {
-    ...normalizeItem(item, ""),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  const itemsCollectionRef = collection(
+    db,
+    "users",
+    user.uid,
+    "trips",
+    String(tripId),
+    "items"
+  );
+
+  const itemId = item.id || doc(itemsCollectionRef).id;
+
+  const payload = normalizeItem({
+    ...item,
+    id: itemId,
+    updatedAt: Date.now(),
+    createdAt: item.createdAt || Date.now(),
   });
 
-  await setDoc(newRef, { id: newRef.id }, { merge: true });
-  return newRef.id;
-}
+  await setDoc(
+    doc(
+      db,
+      "users",
+      user.uid,
+      "trips",
+      String(tripId),
+      "items",
+      String(itemId)
+    ),
+    payload,
+    { merge: true }
+  );
 
-export async function saveTripItems(tripId, items) {
-  for (const item of items) {
-    await upsertTripItem(tripId, item);
-  }
+  return payload;
 }
 
 export async function deleteTripItem(tripId, itemId) {
-  await deleteDoc(itemDoc(tripId, itemId));
+  const user = requireUser();
+
+  if (!tripId || !itemId) {
+    throw new Error("Missing tripId or itemId.");
+  }
+
+  await deleteDoc(
+    doc(
+      db,
+      "users",
+      user.uid,
+      "trips",
+      String(tripId),
+      "items",
+      String(itemId)
+    )
+  );
 }
