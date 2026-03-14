@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
+  Alert,
   Image,
   Platform,
   Pressable,
@@ -13,8 +14,15 @@ import {
   View,
 } from "react-native";
 
-import { collection, getDocs, query, where, } from "firebase/firestore";
-import { db } from "../firebaseConfig";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
 const BLUE = "#3F63F3";
 
@@ -56,6 +64,7 @@ export default function MainTrip() {
   );
 
   const [activeId, setActiveId] = useState(null);
+
   const showLabel = (id) => setActiveId(id);
   const hideLabel = () => setActiveId(null);
 
@@ -88,6 +97,47 @@ export default function MainTrip() {
       params: { tripId },
     });
 
+  const actuallyDeleteTrip = async () => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      Alert.alert("Error", "No user is logged in.");
+      return;
+    }
+
+    if (!tripId) {
+      Alert.alert("Error", "No trip was found to delete.");
+      return;
+    }
+
+    try {
+      const tripRef = doc(db, "users", user.uid, "trips", tripId);
+      await deleteDoc(tripRef);
+      router.replace("/dashboard");
+    } catch (error) {
+      console.log("DELETE TRIP ERROR:", error);
+      Alert.alert("Error", "Trip could not be deleted.");
+    }
+  };
+
+  const onDeleteTrip = () => {
+    Alert.alert(
+      "Delete Trip",
+      `Are you sure you want to delete your ${tripTitle} trip?`,
+      [
+        {
+          text: "No",
+          style: "cancel",
+        },
+        {
+          text: "Yes",
+          style: "destructive",
+          onPress: actuallyDeleteTrip,
+        },
+      ]
+    );
+  };
+
   if (!tripId) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -111,22 +161,42 @@ export default function MainTrip() {
             <Ionicons name="chevron-back" size={24} color="#111827" />
           </Pressable>
 
-          <Text style={styles.headerTitle}>{tripTitle}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {tripTitle}
+          </Text>
 
-          <Pressable
-            onPress={async () => {
-                        const q = query(collection(db, "groupchats"), where("tripId", "==", tripId));
-                        const snapshot = await getDocs(q);
-                        if (!snapshot.empty) {
-                          const chatId = snapshot.docs[0].id;
-                          router.push({ pathname: "/chat", params: { chatId } });
-                        }
-                      }}
-            style={[styles.iconButton, { justifyContent: "center" }]}
-            hitSlop={8}
-          >
-            <Ionicons name="chatbubble-outline" size={20} color={BLUE} />
-          </Pressable>
+          <View style={styles.rightIcons}>
+            <Pressable
+              onPress={async () => {
+                try {
+                  const q = query(
+                    collection(db, "groupchats"),
+                    where("tripId", "==", tripId)
+                  );
+                  const snapshot = await getDocs(q);
+
+                  if (!snapshot.empty) {
+                    const chatId = snapshot.docs[0].id;
+                    router.push({ pathname: "/chat", params: { chatId } });
+                  }
+                } catch (error) {
+                  console.log("CHAT LOAD ERROR:", error);
+                }
+              }}
+              style={[styles.iconButton, { justifyContent: "center" }]}
+              hitSlop={8}
+            >
+              <Ionicons name="chatbubble-outline" size={20} color={BLUE} />
+            </Pressable>
+
+            <Pressable
+              onPress={onDeleteTrip}
+              style={[styles.iconButton, { justifyContent: "center" }]}
+              hitSlop={8}
+            >
+              <Ionicons name="trash-outline" size={20} color="#DC2626" />
+            </Pressable>
+          </View>
         </View>
 
         <Text style={styles.subhead}>Placeholder</Text>
@@ -211,17 +281,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+
+  rightIcons: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
   iconButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    marginLeft: 4,
   },
+
   headerTitle: {
+    flex: 1,
+    textAlign: "center",
     fontSize: 18,
     fontWeight: "700",
     color: "#111827",
+    marginHorizontal: 8,
   },
 
   subhead: {
@@ -240,6 +321,7 @@ const styles = StyleSheet.create({
     rowGap: 12,
     marginBottom: 18,
   },
+
   tile: {
     width: "48.5%",
     height: 110,
@@ -248,6 +330,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3F4F6",
     position: "relative",
   },
+
   tileImg: {
     width: "100%",
     height: "100%",
@@ -265,6 +348,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(17,24,39,0.12)",
   },
+
   labelText: {
     fontSize: 12,
     fontWeight: "800",
@@ -280,6 +364,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   btnText: {
     color: "#fff",
     fontWeight: "800",

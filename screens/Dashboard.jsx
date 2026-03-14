@@ -58,7 +58,6 @@ export default function Dashboard() {
       const user = auth.currentUser;
       if (!user) {
         setTrips([]);
-        setLoadingTrips(false);
         return;
       }
 
@@ -570,4 +569,4 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 1.2,
   },
-});
+});++++++++++++++++++++++++++6654

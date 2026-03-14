@@ -1,257 +1,99 @@
-import { auth, db, storage } from "../firebaseConfig";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-} from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-function requireUser() {
-  const user = auth.currentUser;
-  if (!user) {
-    throw new Error("User is not signed in.");
+const TRIPS_KEY = "trips";
+const TRIP_ITEMS_KEY = "tripItems";
+
+export async function getTrips() {
+  try {
+    const raw = await AsyncStorage.getItem(TRIPS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (error) {
+    console.log("getTrips error:", error);
+    return [];
   }
-  return user;
 }
 
-function isRemoteUri(uri) {
-  return typeof uri === "string" && /^https?:\/\//i.test(uri);
-}
-
-function sanitizeFileName(name = "file") {
-  return String(name).replace(/[^\w.\-]/g, "_");
-}
-
-function getExtensionFromUri(uri = "") {
-  const clean = String(uri).split("?")[0];
-  const parts = clean.split(".");
-  return parts.length > 1 ? parts.pop() : "";
-}
-
-function uriToBlob(uri) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-
-    xhr.onload = function () {
-      resolve(xhr.response);
-    };
-
-    xhr.onerror = function () {
-      reject(new TypeError("Failed to convert file URI to blob."));
-    };
-
-    xhr.responseType = "blob";
-    xhr.open("GET", uri, true);
-    xhr.send(null);
-  });
-}
-
-function normalizeAttachment(attachment) {
-  if (!attachment) return null;
-
-  const downloadURL = attachment.downloadURL || attachment.uri || "";
-
-  return {
-    id: attachment.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    type: attachment.type || "document",
-    name: attachment.name || "Attachment",
-    uri: downloadURL,
-    downloadURL,
-    mimeType: attachment.mimeType || "",
-    storagePath: attachment.storagePath || "",
-  };
-}
-
-function normalizeItem(item) {
-  const attachments = Array.isArray(item?.attachments)
-    ? item.attachments.map(normalizeAttachment).filter(Boolean)
-    : [];
-
-  return {
-    ...item,
-    attachments,
-  };
-}
-
-export function formatTime(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-
-  let hours = date.getHours();
-  const minutes = date.getMinutes();
-  const suffix = hours >= 12 ? "PM" : "AM";
-
-  if (hours === 0) hours = 12;
-  else if (hours > 12) hours -= 12;
-
-  return `${hours}:${String(minutes).padStart(2, "0")} ${suffix}`;
-}
-
-export async function uploadTripAttachment(tripId, itemId, attachment) {
-  const user = requireUser();
-
-  if (!tripId || !itemId || !attachment) {
-    throw new Error("Missing tripId, itemId, or attachment.");
+export async function saveTrips(trips) {
+  try {
+    await AsyncStorage.setItem(TRIPS_KEY, JSON.stringify(trips));
+  } catch (error) {
+    console.log("saveTrips error:", error);
+    throw error;
   }
+}
 
-  if (attachment.downloadURL || isRemoteUri(attachment.uri)) {
-    return normalizeAttachment({
-      ...attachment,
-      downloadURL: attachment.downloadURL || attachment.uri,
-      uri: attachment.downloadURL || attachment.uri,
-    });
+export async function getTripItemById(tripId) {
+  const trips = await getTrips();
+  return trips.find((trip) => String(trip.id) === String(tripId)) || null;
+}
+
+export async function deleteTrip(tripId) {
+  try {
+    const trips = await getTrips();
+
+    const updatedTrips = trips.filter(
+      (trip) => String(trip.id) !== String(tripId)
+    );
+
+    await saveTrips(updatedTrips);
+
+    const rawItems = await AsyncStorage.getItem(TRIP_ITEMS_KEY);
+    const tripItems = rawItems ? JSON.parse(rawItems) : {};
+
+    if (tripItems[String(tripId)]) {
+      delete tripItems[String(tripId)];
+      await AsyncStorage.setItem(TRIP_ITEMS_KEY, JSON.stringify(tripItems));
+    }
+
+    return true;
+  } catch (error) {
+    console.log("deleteTrip error:", error);
+    throw error;
   }
-
-  const originalUri = attachment.uri;
-  if (!originalUri) {
-    throw new Error("Attachment is missing a local URI.");
-  }
-
-  const blob = await uriToBlob(originalUri);
-
-  const extFromName = attachment.name?.includes(".")
-    ? attachment.name.split(".").pop()
-    : "";
-  const extFromUri = getExtensionFromUri(originalUri);
-  const ext = extFromName || extFromUri || (attachment.type === "image" ? "jpg" : "dat");
-
-  const baseName = sanitizeFileName(
-    attachment.name || `${attachment.type || "file"}.${ext}`
-  );
-
-  const storagePath = `users/${user.uid}/trips/${tripId}/items/${itemId}/${Date.now()}-${baseName}`;
-  const storageRef = ref(storage, storagePath);
-
-  await uploadBytes(storageRef, blob, {
-    contentType:
-      attachment.mimeType ||
-      (attachment.type === "image" ? `image/${ext}` : "application/octet-stream"),
-  });
-
-  if (blob && typeof blob.close === "function") {
-    blob.close();
-  }
-
-  const downloadURL = await getDownloadURL(storageRef);
-
-  return normalizeAttachment({
-    ...attachment,
-    uri: downloadURL,
-    downloadURL,
-    storagePath,
-  });
 }
 
 export async function getTripItems(tripId) {
-  const user = requireUser();
-
-  if (!tripId) return [];
-
-  const itemsRef = collection(
-    db,
-    "users",
-    user.uid,
-    "trips",
-    String(tripId),
-    "items"
-  );
-
-  const snapshot = await getDocs(itemsRef);
-
-  return snapshot.docs.map((docSnap) =>
-    normalizeItem({
-      id: docSnap.id,
-      ...docSnap.data(),
-    })
-  );
+  try {
+    const raw = await AsyncStorage.getItem(TRIP_ITEMS_KEY);
+    const allItems = raw ? JSON.parse(raw) : {};
+    return allItems[String(tripId)] || [];
+  } catch (error) {
+    console.log("getTripItems error:", error);
+    return [];
+  }
 }
 
-export async function getTripItemById(tripId, itemId) {
-  const user = requireUser();
-
-  if (!tripId || !itemId) return null;
-
-  const itemRef = doc(
-    db,
-    "users",
-    user.uid,
-    "trips",
-    String(tripId),
-    "items",
-    String(itemId)
-  );
-
-  const snapshot = await getDoc(itemRef);
-
-  if (!snapshot.exists()) return null;
-
-  return normalizeItem({
-    id: snapshot.id,
-    ...snapshot.data(),
-  });
+export async function saveTripItems(tripId, items) {
+  try {
+    const raw = await AsyncStorage.getItem(TRIP_ITEMS_KEY);
+    const allItems = raw ? JSON.parse(raw) : {};
+    allItems[String(tripId)] = items;
+    await AsyncStorage.setItem(TRIP_ITEMS_KEY, JSON.stringify(allItems));
+  } catch (error) {
+    console.log("saveTripItems error:", error);
+    throw error;
+  }
 }
 
 export async function upsertTripItem(tripId, item) {
-  const user = requireUser();
+  try {
+    const items = await getTripItems(tripId);
+    const existingIndex = items.findIndex(
+      (x) => String(x.id) === String(item.id)
+    );
 
-  if (!tripId || !item) {
-    throw new Error("Missing tripId or item.");
+    let updated;
+    if (existingIndex >= 0) {
+      updated = [...items];
+      updated[existingIndex] = item;
+    } else {
+      updated = [...items, item];
+    }
+
+    await saveTripItems(tripId, updated);
+    return item;
+  } catch (error) {
+    console.log("upsertTripItem error:", error);
+    throw error;
   }
-
-  const itemsCollectionRef = collection(
-    db,
-    "users",
-    user.uid,
-    "trips",
-    String(tripId),
-    "items"
-  );
-
-  const itemId = item.id || doc(itemsCollectionRef).id;
-
-  const payload = normalizeItem({
-    ...item,
-    id: itemId,
-    updatedAt: Date.now(),
-    createdAt: item.createdAt || Date.now(),
-  });
-
-  await setDoc(
-    doc(
-      db,
-      "users",
-      user.uid,
-      "trips",
-      String(tripId),
-      "items",
-      String(itemId)
-    ),
-    payload,
-    { merge: true }
-  );
-
-  return payload;
-}
-
-export async function deleteTripItem(tripId, itemId) {
-  const user = requireUser();
-
-  if (!tripId || !itemId) {
-    throw new Error("Missing tripId or itemId.");
-  }
-
-  await deleteDoc(
-    doc(
-      db,
-      "users",
-      user.uid,
-      "trips",
-      String(tripId),
-      "items",
-      String(itemId)
-    )
-  );
 }
