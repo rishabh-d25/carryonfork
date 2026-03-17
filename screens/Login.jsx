@@ -2,15 +2,15 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
@@ -59,8 +59,8 @@ const onSignUp = async () => {
 
           {/* Card */}
           <View style={styles.card}>
-            <Text style={styles.h1}>placeholder</Text>
-            <Text style={styles.sub}>placeholder 2</Text>
+            <Text style={styles.h1}>Welcome!</Text>
+            <Text style={styles.sub}>We can't wait to help plan your travels!</Text>
 
             <TextInput
               value={email}

@@ -95,13 +95,7 @@ export default function Dashboard() {
   }, [trips]);
 
   const pastTrips = useMemo(() => {
-    return trips
-      .filter((trip) => isPastTrip(trip))
-      .sort((a, b) => {
-        const aEnd = getTimestampMillis(a.endDate);
-        const bEnd = getTimestampMillis(b.endDate);
-        return bEnd - aEnd;
-      });
+    return trips.filter((trip) => isPastTrip(trip));
   }, [trips]);
 
   const mainTrip = useMemo(() => {
