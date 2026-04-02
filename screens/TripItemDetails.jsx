@@ -4,10 +4,12 @@ import Slider from "@react-native-community/slider";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Dimensions,
   Image,
+  Modal,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -21,14 +23,15 @@ import {
   deleteTripItem,
   formatTime,
   getTripItemById,
-  upsertTripItem,
   uploadTripAttachment,
+  upsertTripItem,
 } from "../utils/tripStorage";
 
 const BLUE = "#4967E8";
 const BG = "#F7F7F7";
 const BORDER = "#DADADA";
 const TEXT = "#1F1F1F";
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -59,6 +62,7 @@ function getAttachmentDisplayUri(attachment) {
 export default function TripItemDetails() {
   const router = useRouter();
   const { tripId, itemId } = useLocalSearchParams();
+  const fullScreenScrollRef = useRef(null);
 
   const [item, setItem] = useState(null);
   const [draft, setDraft] = useState(null);
@@ -66,6 +70,9 @@ export default function TripItemDetails() {
   const [saving, setSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
 
   const loadItem = useCallback(async () => {
     if (!tripId || !itemId) return;
@@ -119,6 +126,28 @@ export default function TripItemDetails() {
     if (!Array.isArray(draft?.attachments)) return [];
     return draft.attachments.filter((attachment) => attachment?.type !== "image");
   }, [draft]);
+
+  function openImageViewer(index) {
+    setViewerIndex(index);
+    setViewerVisible(true);
+
+    setTimeout(() => {
+      fullScreenScrollRef.current?.scrollTo({
+        x: SCREEN_WIDTH * index,
+        animated: false,
+      });
+    }, 0);
+  }
+
+  function closeImageViewer() {
+    setViewerVisible(false);
+  }
+
+  function onViewerScrollEnd(event) {
+    const x = event.nativeEvent.contentOffset.x;
+    const index = Math.round(x / SCREEN_WIDTH);
+    setViewerIndex(index);
+  }
 
   function startEdit(field) {
     setEditingField(field);
@@ -211,26 +240,26 @@ export default function TripItemDetails() {
     }
   }
 
-async function onDelete() {
-  if (!tripId || !item?.id) return;
+  async function onDelete() {
+    if (!tripId || !item?.id) return;
 
-  Alert.alert("Delete item", "Are you sure you want to delete this item?", [
-    { text: "Cancel", style: "cancel" },
-    {
-      text: "Delete",
-      style: "destructive",
-      onPress: async () => {
-        try {
-          await deleteTripItem(String(tripId), String(item.id));
-          router.back();
-        } catch (error) {
-          console.log("Delete item error:", error);
-          Alert.alert("Error", "Could not delete item.");
-        }
+    Alert.alert("Delete item", "Are you sure you want to delete this item?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteTripItem(String(tripId), String(item.id));
+            router.back();
+          } catch (error) {
+            console.log("Delete item error:", error);
+            Alert.alert("Error", "Could not delete item.");
+          }
+        },
       },
-    },
-  ]);
-}
+    ]);
+  }
 
   async function addPhotoFromLibrary() {
     try {
@@ -391,13 +420,20 @@ async function onDelete() {
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             style={styles.heroScroller}
+            contentContainerStyle={styles.heroScrollerContent}
           >
-            {imageAttachments.map((attachment) => (
-              <Image
+            {imageAttachments.map((attachment, index) => (
+              <Pressable
                 key={attachment.id}
-                source={{ uri: getAttachmentDisplayUri(attachment) }}
-                style={styles.heroImage}
-              />
+                onPress={() => openImageViewer(index)}
+                style={styles.heroImageWrap}
+              >
+                <Image
+                  source={{ uri: getAttachmentDisplayUri(attachment) }}
+                  style={styles.heroImage}
+                  resizeMode="contain"
+                />
+              </Pressable>
             ))}
           </ScrollView>
         ) : (
@@ -771,12 +807,16 @@ async function onDelete() {
             <>
               {imageAttachments.length > 0 ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentsRow}>
-                  {imageAttachments.map((attachment) => (
+                  {imageAttachments.map((attachment, index) => (
                     <View key={attachment.id} style={styles.attachmentCard}>
-                      <Image
-                        source={{ uri: getAttachmentDisplayUri(attachment) }}
-                        style={styles.attachmentImage}
-                      />
+                      <Pressable onPress={() => openImageViewer(index)}>
+                        <Image
+                          source={{ uri: getAttachmentDisplayUri(attachment) }}
+                          style={styles.attachmentImage}
+                          resizeMode="contain"
+                        />
+                      </Pressable>
+
                       <Text numberOfLines={1} style={styles.attachmentName}>
                         {attachment.name}
                       </Text>
@@ -831,6 +871,40 @@ async function onDelete() {
           <Text style={styles.deleteButtonText}>DELETE ACTIVITY</Text>
         </Pressable>
       </ScrollView>
+
+      <Modal visible={viewerVisible} transparent animationType="fade" onRequestClose={closeImageViewer}>
+        <View style={styles.viewerOverlay}>
+          <Pressable style={styles.viewerCloseButton} onPress={closeImageViewer}>
+            <Ionicons name="close" size={30} color="#fff" />
+          </Pressable>
+
+          <ScrollView
+            ref={fullScreenScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onViewerScrollEnd}
+          >
+            {imageAttachments.map((attachment) => (
+              <View key={attachment.id} style={styles.viewerSlide}>
+                <Image
+                  source={{ uri: getAttachmentDisplayUri(attachment) }}
+                  style={styles.viewerImage}
+                  resizeMode="contain"
+                />
+              </View>
+            ))}
+          </ScrollView>
+
+          {imageAttachments.length > 1 ? (
+            <View style={styles.viewerCounter}>
+              <Text style={styles.viewerCounterText}>
+                {viewerIndex + 1} / {imageAttachments.length}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -846,7 +920,25 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, color: TEXT, fontFamily: "serif" },
 
   heroScroller: { marginBottom: 14 },
-  heroImage: { width: 320, height: 210, marginRight: 10, borderRadius: 18, backgroundColor: "#E5E7EB" },
+  heroScrollerContent: { paddingRight: 4 },
+  heroImageWrap: {
+    width: SCREEN_WIDTH - 40,
+    height: 230,
+    marginRight: 10,
+    borderRadius: 18,
+    backgroundColor: "#F3F4F6",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#E5E7EB",
+  },
+
   noPhotoCard: { height: 140, borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", marginBottom: 14, gap: 8 },
   noPhotoText: { color: "#6B7280", fontSize: 14, fontWeight: "600" },
 
@@ -914,8 +1006,23 @@ const styles = StyleSheet.create({
   timeButtonText: { fontSize: 15, color: TEXT },
 
   attachmentsRow: { paddingTop: 4, paddingBottom: 6 },
-  attachmentCard: { width: 120, backgroundColor: "#fff", borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 8, marginRight: 10, position: "relative" },
-  attachmentImage: { width: "100%", height: 80, borderRadius: 8, backgroundColor: "#EEE", marginBottom: 6 },
+  attachmentCard: {
+    width: 120,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    padding: 8,
+    marginRight: 10,
+    position: "relative",
+  },
+  attachmentImage: {
+    width: "100%",
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: "#EEE",
+    marginBottom: 6,
+  },
   attachmentName: { fontSize: 12, color: TEXT },
   removeAttachmentButton: { position: "absolute", top: -6, right: -6, backgroundColor: "#fff", borderRadius: 999 },
 
@@ -970,4 +1077,47 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   deleteButtonText: { color: "#D9534F", fontSize: 15, fontWeight: "700" },
+
+  viewerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.96)",
+    justifyContent: "center",
+  },
+  viewerCloseButton: {
+    position: "absolute",
+    top: 55,
+    right: 20,
+    zIndex: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewerSlide: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  viewerImage: {
+    width: "100%",
+    height: "75%",
+  },
+  viewerCounter: {
+    position: "absolute",
+    bottom: 45,
+    alignSelf: "center",
+    backgroundColor: "rgba(255,255,255,0.14)",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  viewerCounterText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });

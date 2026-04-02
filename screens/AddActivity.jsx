@@ -1,10 +1,14 @@
+
+
+
+
 import { Ionicons } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import Slider from "@react-native-community/slider";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
@@ -18,9 +22,9 @@ import {
   View,
 } from "react-native";
 import {
+  formatTime,
   getTripItemById,
   upsertTripItem,
-  formatTime,
 } from "../utils/tripStorage";
 
 const BLUE = "#4967E8";
