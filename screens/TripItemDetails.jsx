@@ -308,110 +308,157 @@ async function saveDraft() {
     ]);
   }
 
-  async function addPhotoFromLibrary() {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow photo library access.");
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: false,
-        allowsMultipleSelection: true,
-      });
-
-      if (result.canceled || !draft) return;
-
-      const newItems = (result.assets || []).map((asset) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        type: "image",
-        uri: asset.uri,
-        name: asset.fileName || "Photo",
-        mimeType: asset.mimeType || "image/jpeg",
-        isLocalPersisted: false,
-      }));
-
-      setDraft((prev) => ({
-        ...prev,
-        attachments: [...(prev.attachments || []), ...newItems],
-      }));
-    } catch (error) {
-      console.log("addPhotoFromLibrary error:", error);
-      Alert.alert("Error", "Could not add photo.");
+async function addPhotoFromLibrary() {
+  try {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      return;
     }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
+    });
+
+    if (result.canceled || !draft) return;
+
+    const newItems = (result.assets || []).map((asset) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: "image",
+      uri: asset.uri,
+      name: asset.fileName || "Photo",
+      mimeType: asset.mimeType || "image/jpeg",
+      isLocalPersisted: false,
+    }));
+
+    const nextAttachments = [...(draft.attachments || []), ...newItems];
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    await saveAttachmentsImmediately(nextAttachments);
+  } catch (error) {
+    console.log("addPhotoFromLibrary error:", error);
   }
+}
 
-  async function takePhoto() {
-    try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow camera access.");
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: false,
-      });
-
-      if (result.canceled || !draft) return;
-
-      const asset = result.assets?.[0];
-      if (!asset) return;
-
-      const newItem = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        type: "image",
-        uri: asset.uri,
-        name: asset.fileName || "Camera Photo",
-        mimeType: asset.mimeType || "image/jpeg",
-        isLocalPersisted: false,
-      };
-
-      setDraft((prev) => ({
-        ...prev,
-        attachments: [...(prev.attachments || []), newItem],
-      }));
-    } catch (error) {
-      console.log("takePhoto error:", error);
-      Alert.alert("Error", "Could not take photo.");
+async function takePhoto() {
+  try {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      return;
     }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: false,
+    });
+
+    if (result.canceled || !draft) return;
+
+    const asset = result.assets?.[0];
+    if (!asset) return;
+
+    const newItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: "image",
+      uri: asset.uri,
+      name: asset.fileName || "Camera Photo",
+      mimeType: asset.mimeType || "image/jpeg",
+      isLocalPersisted: false,
+    };
+
+    const nextAttachments = [...(draft.attachments || []), newItem];
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    await saveAttachmentsImmediately(nextAttachments);
+  } catch (error) {
+    console.log("takePhoto error:", error);
   }
+}
 
-  async function addDocument() {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
+async function addDocument() {
+  try {
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
 
-      if (result.canceled || !draft) return;
+    if (result.canceled || !draft) return;
 
-      const file = result.assets?.[0];
-      if (!file) return;
+    const file = result.assets?.[0];
+    if (!file) return;
 
-      const newDoc = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        type: "document",
-        uri: file.uri,
-        name: file.name || "Document",
-        mimeType: file.mimeType || "application/octet-stream",
-        isLocalPersisted: false,
-      };
+    const newDoc = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: "document",
+      uri: file.uri,
+      name: file.name || "Document",
+      mimeType: file.mimeType || "application/octet-stream",
+      isLocalPersisted: false,
+    };
 
-      setDraft((prev) => ({
-        ...prev,
-        attachments: [...(prev.attachments || []), newDoc],
-      }));
-    } catch (error) {
-      console.log("addDocument error:", error);
-      Alert.alert("Error", "Could not add document.");
-    }
+    const nextAttachments = [...(draft.attachments || []), newDoc];
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    await saveAttachmentsImmediately(nextAttachments);
+  } catch (error) {
+    console.log("addDocument error:", error);
   }
+}
+
+  async function saveAttachmentsImmediately(nextAttachments) {
+  if (!tripId || !itemId || !draft) return;
+
+  try {
+    const safeDate = draft.dateObject || buildDateFromItem(draft);
+
+    const updatedItem = {
+      ...draft,
+      id: itemId,
+      month: MONTHS[safeDate.getMonth()],
+      year: safeDate.getFullYear(),
+      day: safeDate.getDate(),
+      hour24: safeDate.getHours(),
+      minute: safeDate.getMinutes(),
+      dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
+      timeLabel: formatTime(safeDate),
+      description: (draft.description || "").trim(),
+      location: (draft.location || "").trim(),
+      reservationNumber: (draft.reservationNumber || "").trim(),
+      attachments: nextAttachments,
+    };
+
+    delete updatedItem.dateObject;
+
+    await upsertTripItem(tripId, updatedItem);
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    setItem((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+  } catch (error) {
+    console.log("saveAttachmentsImmediately error:", error);
+  }
+}
 
   function openAttachmentPicker() {
     Alert.alert("Add Attachment", "Choose what you want to add.", [
@@ -422,12 +469,18 @@ async function saveDraft() {
     ]);
   }
 
-  function removeAttachment(attachmentId) {
-    setDraft((prev) => ({
-      ...prev,
-      attachments: (prev.attachments || []).filter((a) => String(a.id) !== String(attachmentId)),
-    }));
-  }
+async function removeAttachment(attachmentId) {
+  const nextAttachments = (draft.attachments || []).filter(
+    (a) => String(a.id) !== String(attachmentId)
+  );
+
+  setDraft((prev) => ({
+    ...prev,
+    attachments: nextAttachments,
+  }));
+
+  await saveAttachmentsImmediately(nextAttachments);
+}
 
   if (!draft) {
     return (
