@@ -47,6 +47,29 @@ function isPastTrip(trip) {
   return endMillis > 0 && endMillis < startOfTodayMillis();
 }
 
+function getPlaceholderPhotoUri(trip) {
+  const tripPhotos = trip?.tripPhotos || {};
+
+  const slots = [
+    tripPhotos?.slot1?.uri,
+    tripPhotos?.slot2?.uri,
+    tripPhotos?.slot3?.uri,
+    tripPhotos?.slot4?.uri,
+  ];
+
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i]) return slots[i];
+  }
+
+  return "";
+}
+
+function getTripDisplayPhotoUri(trip) {
+  const heroUri = trip?.heroPhoto?.uri;
+  if (heroUri) return heroUri;
+  return getPlaceholderPhotoUri(trip);
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [trips, setTrips] = useState([]);
@@ -58,13 +81,13 @@ export default function Dashboard() {
     try {
       setLoadingTrips(true);
 
-      const user = auth.currentUser;
-      if (!user) {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
         setTrips([]);
         return;
       }
 
-      const tripsRef = collection(db, "users", user.uid, "trips");
+      const tripsRef = collection(db, "users", currentUser.uid, "trips");
       const snapshot = await getDocs(tripsRef);
 
       const loadedTrips = snapshot.docs.map((doc) => ({
@@ -127,11 +150,11 @@ export default function Dashboard() {
   const onCreateTripPress = () => router.push("/createtrip");
   const onUpcomingPress = () => router.push("/upcoming");
   const onInvitesPress = () => router.push("/invites");
-  
-  const onSettingsPress = () => 
+
+  const onSettingsPress = () =>
     router.push({
       pathname: "/settings",
-      params: {  userId: user.uid },
+      params: { userId: user.uid },
     });
 
   const onBackPress = () => router.back();
@@ -169,17 +192,31 @@ export default function Dashboard() {
             style={styles.heroButton}
             activeOpacity={0.9}
           >
-            <ImageBackground
-              source={MAIN_TRIP_IMAGE}
-              style={styles.heroImage}
-              imageStyle={styles.heroImageRadius}
-            >
-              <View style={styles.heroLabelButton}>
-                <Text style={styles.heroLabelText}>
-                  {mainTrip.title || mainTrip.location || "Trip"}
-                </Text>
-              </View>
-            </ImageBackground>
+            {getTripDisplayPhotoUri(mainTrip) ? (
+              <ImageBackground
+                source={{ uri: getTripDisplayPhotoUri(mainTrip) }}
+                style={styles.heroImage}
+                imageStyle={styles.heroImageRadius}
+              >
+                <View style={styles.heroLabelButton}>
+                  <Text style={styles.heroLabelText}>
+                    {mainTrip.title || mainTrip.location || "Trip"}
+                  </Text>
+                </View>
+              </ImageBackground>
+            ) : (
+              <ImageBackground
+                source={MAIN_TRIP_IMAGE}
+                style={styles.heroImage}
+                imageStyle={styles.heroImageRadius}
+              >
+                <View style={styles.heroLabelButton}>
+                  <Text style={styles.heroLabelText}>
+                    {mainTrip.title || mainTrip.location || "Trip"}
+                  </Text>
+                </View>
+              </ImageBackground>
+            )}
           </TouchableOpacity>
         ) : (
           <View style={styles.noMainTripCard}>
@@ -204,47 +241,56 @@ export default function Dashboard() {
           </View>
         ) : (
           <View style={styles.tripList}>
-            {activeTrips.map((trip) => (
-              <TouchableOpacity
-                key={trip.id}
-                style={styles.tripCard}
-                activeOpacity={0.85}
-                onPress={() => onOpenTrip(trip)}
-              >
-                <View style={styles.tripCardLeft}>
-                  {trip.imageUrl ? (
-                    <Image
-                      source={{ uri: trip.imageUrl }}
-                      style={styles.tripThumb}
-                    />
-                  ) : (
-                    <View style={styles.tripThumbPlaceholder}>
-                      <Ionicons name="airplane" size={22} color="#9CA3AF" />
-                    </View>
-                  )}
-                </View>
+            {activeTrips.map((trip) => {
+              const tripPhotoUri = getTripDisplayPhotoUri(trip);
 
-                <View style={styles.tripCardBody}>
-                  <Text style={styles.tripCardTitle} numberOfLines={1}>
-                    {trip.title || trip.location || "Trip"}
-                  </Text>
+              return (
+                <TouchableOpacity
+                  key={trip.id}
+                  style={styles.tripCard}
+                  activeOpacity={0.85}
+                  onPress={() => onOpenTrip(trip)}
+                >
+                  <View style={styles.tripCardLeft}>
+                    {tripPhotoUri ? (
+                      <Image
+                        source={{ uri: tripPhotoUri }}
+                        style={styles.tripThumb}
+                      />
+                    ) : trip.imageUrl ? (
+                      <Image
+                        source={{ uri: trip.imageUrl }}
+                        style={styles.tripThumb}
+                      />
+                    ) : (
+                      <View style={styles.tripThumbPlaceholder}>
+                        <Ionicons name="airplane" size={22} color="#9CA3AF" />
+                      </View>
+                    )}
+                  </View>
 
-                  {!!trip.description && (
-                    <Text style={styles.tripCardSubtext} numberOfLines={2}>
-                      {trip.description}
+                  <View style={styles.tripCardBody}>
+                    <Text style={styles.tripCardTitle} numberOfLines={1}>
+                      {trip.title || trip.location || "Trip"}
                     </Text>
-                  )}
 
-                  {!!trip.location && trip.title !== trip.location && (
-                    <Text style={styles.tripCardMeta} numberOfLines={1}>
-                      {trip.location}
-                    </Text>
-                  )}
-                </View>
+                    {!!trip.description && (
+                      <Text style={styles.tripCardSubtext} numberOfLines={2}>
+                        {trip.description}
+                      </Text>
+                    )}
 
-                <Ionicons name="chevron-forward" size={18} color="#6B7280" />
-              </TouchableOpacity>
-            ))}
+                    {!!trip.location && trip.title !== trip.location && (
+                      <Text style={styles.tripCardMeta} numberOfLines={1}>
+                        {trip.location}
+                      </Text>
+                    )}
+                  </View>
+
+                  <Ionicons name="chevron-forward" size={18} color="#6B7280" />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 
@@ -276,31 +322,40 @@ export default function Dashboard() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.circlesRow}
             >
-              {pastTrips.slice(0, 7).map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  onPress={() => onOpenTrip(t)}
-                  style={styles.tripCircleBtn}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.circleShadowWrap}>
-                    {t.imageUrl ? (
-                      <Image
-                        source={{ uri: t.imageUrl }}
-                        style={styles.tripCircleImg}
-                      />
-                    ) : (
-                      <View style={styles.tripCirclePlaceholder}>
-                        <Ionicons name="airplane" size={22} color="#9CA3AF" />
-                      </View>
-                    )}
-                  </View>
+              {pastTrips.slice(0, 7).map((t) => {
+                const tripPhotoUri = getTripDisplayPhotoUri(t);
 
-                  <Text style={styles.tripCircleLabel} numberOfLines={1}>
-                    {t.title || t.location || "Trip"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                return (
+                  <TouchableOpacity
+                    key={t.id}
+                    onPress={() => onOpenTrip(t)}
+                    style={styles.tripCircleBtn}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.circleShadowWrap}>
+                      {tripPhotoUri ? (
+                        <Image
+                          source={{ uri: tripPhotoUri }}
+                          style={styles.tripCircleImg}
+                        />
+                      ) : t.imageUrl ? (
+                        <Image
+                          source={{ uri: t.imageUrl }}
+                          style={styles.tripCircleImg}
+                        />
+                      ) : (
+                        <View style={styles.tripCirclePlaceholder}>
+                          <Ionicons name="airplane" size={22} color="#9CA3AF" />
+                        </View>
+                      )}
+                    </View>
+
+                    <Text style={styles.tripCircleLabel} numberOfLines={1}>
+                      {t.title || t.location || "Trip"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
 
             <TouchableOpacity
