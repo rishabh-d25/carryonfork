@@ -1,7 +1,3 @@
-
-
-
-
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import Slider from "@react-native-community/slider";
@@ -368,6 +364,7 @@ export default function AddActivity() {
 
       try {
         await upsertTripItem(tripId, item);
+
         router.replace({
           pathname: "/tripitinerary",
           params: { tripId },
@@ -399,6 +396,7 @@ export default function AddActivity() {
       }
 
       resetAllForms();
+
       router.replace({
         pathname: "/tripitinerary",
         params: { tripId },

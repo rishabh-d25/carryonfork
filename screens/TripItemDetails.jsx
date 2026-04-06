@@ -23,7 +23,7 @@ import {
   deleteTripItem,
   formatTime,
   getTripItemById,
-  uploadTripAttachment,
+  persistTripAttachmentLocally,
   upsertTripItem,
 } from "../utils/tripStorage";
 
@@ -44,24 +44,26 @@ const CATEGORIES = [
 
 function buildDateFromItem(item) {
   const monthIndex = Math.max(0, MONTHS.indexOf(item?.month));
-  const year = item?.year || 2026;
+  const year = item?.year || new Date().getFullYear();
   const day = item?.day || 1;
-  const hour = item?.hour24 ?? 12;
-  const minute = item?.minute ?? 0;
+  const hour = typeof item?.hour24 === "number" ? item.hour24 : 12;
+  const minute = typeof item?.minute === "number" ? item.minute : 0;
   return new Date(year, monthIndex, day, hour, minute, 0);
 }
 
-function isRemoteUri(uri) {
-  return typeof uri === "string" && /^https?:\/\//i.test(uri);
+function getAttachmentDisplayUri(attachment) {
+  return attachment?.uri || "";
 }
 
-function getAttachmentDisplayUri(attachment) {
-  return attachment?.downloadURL || attachment?.uri || "";
+function isLocalPersistedAttachment(attachment) {
+  return !!attachment?.isLocalPersisted;
 }
 
 export default function TripItemDetails() {
   const router = useRouter();
-  const { tripId, itemId } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+  const tripId = params.tripId ? String(params.tripId) : null;
+  const itemId = params.itemId ? String(params.itemId) : null;
   const fullScreenScrollRef = useRef(null);
 
   const [item, setItem] = useState(null);
@@ -70,7 +72,6 @@ export default function TripItemDetails() {
   const [saving, setSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
@@ -78,11 +79,9 @@ export default function TripItemDetails() {
     if (!tripId || !itemId) return;
 
     try {
-      console.log("Loading detail item:", tripId, itemId);
-      const found = await getTripItemById(String(tripId), String(itemId));
+      const found = await getTripItemById(tripId, itemId);
 
       if (!found) {
-        console.log("Item not found");
         setItem(null);
         setDraft(null);
         return;
@@ -92,6 +91,7 @@ export default function TripItemDetails() {
 
       const safeItem = {
         ...found,
+        id: itemId,
         attachments: safeAttachments,
       };
 
@@ -156,9 +156,11 @@ export default function TripItemDetails() {
   function cancelEdit() {
     if (!item) return;
 
+    const safeAttachments = Array.isArray(item.attachments) ? item.attachments : [];
+
     setDraft({
       ...item,
-      attachments: Array.isArray(item.attachments) ? item.attachments : [],
+      attachments: safeAttachments,
       dateObject: buildDateFromItem(item),
     });
     setEditingField(null);
@@ -166,82 +168,124 @@ export default function TripItemDetails() {
     setShowTimePicker(false);
   }
 
-  async function persistAttachments(attachmentsToPersist) {
-    const nextAttachments = [];
+async function persistAttachmentsLocally(attachmentsToPersist) {
+  const nextAttachments = [];
+  const failedAttachments = [];
 
-    for (const attachment of attachmentsToPersist || []) {
-      const uri = attachment?.downloadURL || attachment?.uri || "";
-
-      if (uri && isRemoteUri(uri)) {
+  for (const attachment of attachmentsToPersist || []) {
+    try {
+      if (isLocalPersistedAttachment(attachment)) {
         nextAttachments.push({
           ...attachment,
-          uri,
-          downloadURL: attachment.downloadURL || uri,
+          id: String(attachment.id),
         });
-      } else {
-        const uploaded = await uploadTripAttachment(
-          String(tripId),
-          String(item.id),
-          attachment
-        );
-        nextAttachments.push(uploaded);
+        continue;
       }
-    }
 
-    return nextAttachments;
+      if (!attachment?.uri) {
+        failedAttachments.push(attachment);
+        continue;
+      }
+
+      const savedAttachment = await persistTripAttachmentLocally(tripId, itemId, attachment);
+
+      nextAttachments.push({
+        ...savedAttachment,
+        id: String(savedAttachment.id || attachment.id),
+      });
+
+      if (!savedAttachment?.uri) {
+        failedAttachments.push(attachment);
+      }
+    } catch (error) {
+      console.log("persistAttachmentsLocally failed:", error);
+
+      // keep the original attachment so it doesn't vanish
+      nextAttachments.push({
+        ...attachment,
+        id: String(attachment.id),
+      });
+
+      failedAttachments.push(attachment);
+    }
   }
 
-  async function saveDraft() {
-    if (!draft || !tripId || !item?.id) return;
+  return {
+    attachments: nextAttachments,
+    failedAttachments,
+  };
+}
+async function saveDraft() {
+  if (!draft || !tripId || !itemId || saving) return;
 
-    if (!draft.description?.trim()) {
-      Alert.alert("Missing description", "Description cannot be empty.");
-      return;
+  if (!draft.description?.trim()) {
+    Alert.alert("Missing description", "Description cannot be empty.");
+    return;
+  }
+
+  try {
+    setSaving(true);
+
+    const safeDate = draft.dateObject || buildDateFromItem(draft);
+
+    let finalAttachments = Array.isArray(draft.attachments) ? [...draft.attachments] : [];
+
+    if (editingField === "attachments") {
+      const result = await persistAttachmentsLocally(finalAttachments);
+      finalAttachments = result.attachments;
     }
 
-    try {
-      setSaving(true);
+    const updatedItem = {
+      ...draft,
+      id: itemId,
+      month: MONTHS[safeDate.getMonth()],
+      year: safeDate.getFullYear(),
+      day: safeDate.getDate(),
+      hour24: safeDate.getHours(),
+      minute: safeDate.getMinutes(),
+      dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
+      timeLabel: formatTime(safeDate),
+      description: (draft.description || "").trim(),
+      location: (draft.location || "").trim(),
+      reservationNumber: (draft.reservationNumber || "").trim(),
+      attachments: finalAttachments,
+    };
 
-      const safeDate = draft.dateObject || buildDateFromItem(draft);
-      const persistedAttachments = await persistAttachments(draft.attachments || []);
+    delete updatedItem.dateObject;
 
-      const updatedItem = {
-        ...item,
-        ...draft,
-        id: item.id,
-        month: MONTHS[safeDate.getMonth()],
-        year: safeDate.getFullYear(),
-        day: safeDate.getDate(),
-        hour24: safeDate.getHours(),
-        minute: safeDate.getMinutes(),
-        dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
-        timeLabel: formatTime(safeDate),
-        description: (draft.description || "").trim(),
-        location: (draft.location || "").trim(),
-        reservationNumber: (draft.reservationNumber || "").trim(),
-        attachments: persistedAttachments,
+    await upsertTripItem(tripId, updatedItem);
+
+    const freshItem = await getTripItemById(tripId, itemId);
+    const safeFreshAttachments = Array.isArray(freshItem?.attachments) ? freshItem.attachments : [];
+
+    if (freshItem) {
+      const normalized = {
+        ...freshItem,
+        id: itemId,
+        attachments: safeFreshAttachments,
       };
 
-      delete updatedItem.dateObject;
-
-      const saved = await upsertTripItem(String(tripId), updatedItem);
-      setItem(saved);
+      setItem(normalized);
       setDraft({
-        ...saved,
-        attachments: Array.isArray(saved.attachments) ? saved.attachments : [],
-        dateObject: buildDateFromItem(saved),
+        ...normalized,
+        attachments: safeFreshAttachments,
+        dateObject: buildDateFromItem(normalized),
       });
-      setEditingField(null);
-    } catch (error) {
-      console.log("saveDraft error:", error);
-      Alert.alert("Error", "Could not save changes.");
-    } finally {
-      setSaving(false);
     }
+
+    setEditingField(null);
+    setShowDatePicker(false);
+    setShowTimePicker(false);
+  } catch (error) {
+    console.log("saveDraft error:", error);
+    Alert.alert("Error", error.message || "Could not save changes.");
+  } finally {
+    setSaving(false);
   }
+}
 
   async function onDelete() {
-    if (!tripId || !item?.id) return;
+    if (!tripId || !itemId) return;
 
     Alert.alert("Delete item", "Are you sure you want to delete this item?", [
       { text: "Cancel", style: "cancel" },
@@ -250,8 +294,11 @@ export default function TripItemDetails() {
         style: "destructive",
         onPress: async () => {
           try {
-            await deleteTripItem(String(tripId), String(item.id));
-            router.back();
+            await deleteTripItem(tripId, itemId);
+            router.replace({
+              pathname: "/tripitinerary",
+              params: { tripId },
+            });
           } catch (error) {
             console.log("Delete item error:", error);
             Alert.alert("Error", "Could not delete item.");
@@ -261,107 +308,157 @@ export default function TripItemDetails() {
     ]);
   }
 
-  async function addPhotoFromLibrary() {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow photo library access.");
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: false,
-        allowsMultipleSelection: true,
-      });
-
-      if (result.canceled || !draft) return;
-
-      const newItems = result.assets.map((asset) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        type: "image",
-        uri: asset.uri,
-        name: asset.fileName || "Photo",
-        mimeType: asset.mimeType || "image/jpeg",
-      }));
-
-      setDraft((prev) => ({
-        ...prev,
-        attachments: [...(prev.attachments || []), ...newItems],
-      }));
-    } catch (error) {
-      console.log("addPhotoFromLibrary error:", error);
-      Alert.alert("Error", "Could not add photo.");
+async function addPhotoFromLibrary() {
+  try {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      return;
     }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
+    });
+
+    if (result.canceled || !draft) return;
+
+    const newItems = (result.assets || []).map((asset) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: "image",
+      uri: asset.uri,
+      name: asset.fileName || "Photo",
+      mimeType: asset.mimeType || "image/jpeg",
+      isLocalPersisted: false,
+    }));
+
+    const nextAttachments = [...(draft.attachments || []), ...newItems];
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    await saveAttachmentsImmediately(nextAttachments);
+  } catch (error) {
+    console.log("addPhotoFromLibrary error:", error);
   }
+}
 
-  async function takePhoto() {
-    try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow camera access.");
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: false,
-      });
-
-      if (result.canceled || !draft) return;
-
-      const asset = result.assets?.[0];
-      if (!asset) return;
-
-      const newItem = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        type: "image",
-        uri: asset.uri,
-        name: asset.fileName || "Camera Photo",
-        mimeType: asset.mimeType || "image/jpeg",
-      };
-
-      setDraft((prev) => ({
-        ...prev,
-        attachments: [...(prev.attachments || []), newItem],
-      }));
-    } catch (error) {
-      console.log("takePhoto error:", error);
-      Alert.alert("Error", "Could not take photo.");
+async function takePhoto() {
+  try {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      return;
     }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: false,
+    });
+
+    if (result.canceled || !draft) return;
+
+    const asset = result.assets?.[0];
+    if (!asset) return;
+
+    const newItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: "image",
+      uri: asset.uri,
+      name: asset.fileName || "Camera Photo",
+      mimeType: asset.mimeType || "image/jpeg",
+      isLocalPersisted: false,
+    };
+
+    const nextAttachments = [...(draft.attachments || []), newItem];
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    await saveAttachmentsImmediately(nextAttachments);
+  } catch (error) {
+    console.log("takePhoto error:", error);
   }
+}
 
-  async function addDocument() {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
+async function addDocument() {
+  try {
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
 
-      if (result.canceled || !draft) return;
+    if (result.canceled || !draft) return;
 
-      const file = result.assets?.[0];
-      if (!file) return;
+    const file = result.assets?.[0];
+    if (!file) return;
 
-      const newDoc = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        type: "document",
-        uri: file.uri,
-        name: file.name || "Document",
-        mimeType: file.mimeType || "",
-      };
+    const newDoc = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: "document",
+      uri: file.uri,
+      name: file.name || "Document",
+      mimeType: file.mimeType || "application/octet-stream",
+      isLocalPersisted: false,
+    };
 
-      setDraft((prev) => ({
-        ...prev,
-        attachments: [...(prev.attachments || []), newDoc],
-      }));
-    } catch (error) {
-      console.log("addDocument error:", error);
-      Alert.alert("Error", "Could not add document.");
-    }
+    const nextAttachments = [...(draft.attachments || []), newDoc];
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    await saveAttachmentsImmediately(nextAttachments);
+  } catch (error) {
+    console.log("addDocument error:", error);
   }
+}
+
+  async function saveAttachmentsImmediately(nextAttachments) {
+  if (!tripId || !itemId || !draft) return;
+
+  try {
+    const safeDate = draft.dateObject || buildDateFromItem(draft);
+
+    const updatedItem = {
+      ...draft,
+      id: itemId,
+      month: MONTHS[safeDate.getMonth()],
+      year: safeDate.getFullYear(),
+      day: safeDate.getDate(),
+      hour24: safeDate.getHours(),
+      minute: safeDate.getMinutes(),
+      dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
+      timeLabel: formatTime(safeDate),
+      description: (draft.description || "").trim(),
+      location: (draft.location || "").trim(),
+      reservationNumber: (draft.reservationNumber || "").trim(),
+      attachments: nextAttachments,
+    };
+
+    delete updatedItem.dateObject;
+
+    await upsertTripItem(tripId, updatedItem);
+
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+
+    setItem((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
+  } catch (error) {
+    console.log("saveAttachmentsImmediately error:", error);
+  }
+}
 
   function openAttachmentPicker() {
     Alert.alert("Add Attachment", "Choose what you want to add.", [
@@ -372,12 +469,18 @@ export default function TripItemDetails() {
     ]);
   }
 
-  function removeAttachment(attachmentId) {
-    setDraft((prev) => ({
-      ...prev,
-      attachments: (prev.attachments || []).filter((a) => a.id !== attachmentId),
-    }));
-  }
+async function removeAttachment(attachmentId) {
+  const nextAttachments = (draft.attachments || []).filter(
+    (a) => String(a.id) !== String(attachmentId)
+  );
+
+  setDraft((prev) => ({
+    ...prev,
+    attachments: nextAttachments,
+  }));
+
+  await saveAttachmentsImmediately(nextAttachments);
+}
 
   if (!draft) {
     return (
@@ -503,7 +606,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -542,7 +645,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -581,7 +684,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -631,7 +734,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -675,7 +778,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -729,7 +832,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -783,7 +886,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -859,7 +962,7 @@ export default function TripItemDetails() {
                 <Pressable style={styles.cancelButton} onPress={cancelEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveButton} onPress={saveDraft}>
+                <Pressable style={styles.saveButton} onPress={saveDraft} disabled={saving}>
                   <Text style={styles.saveButtonText}>{saving ? "Saving..." : "Save"}</Text>
                 </Pressable>
               </View>
@@ -939,7 +1042,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
   },
 
-  noPhotoCard: { height: 140, borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", marginBottom: 14, gap: 8 },
+  noPhotoCard: {
+    height: 140,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    gap: 8,
+  },
   noPhotoText: { color: "#6B7280", fontSize: 14, fontWeight: "600" },
 
   summaryCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: BORDER, borderRadius: 18, padding: 16, marginBottom: 12 },
@@ -956,7 +1069,14 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 14, fontWeight: "700", color: TEXT, marginBottom: 6 },
   infoValue: { fontSize: 15, color: TEXT, lineHeight: 22 },
 
-  editIconButton: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#EEF2FF" },
+  editIconButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF2FF",
+  },
 
   input: {
     minHeight: 48,
@@ -1026,7 +1146,16 @@ const styles = StyleSheet.create({
   attachmentName: { fontSize: 12, color: TEXT },
   removeAttachmentButton: { position: "absolute", top: -6, right: -6, backgroundColor: "#fff", borderRadius: 999 },
 
-  documentRow: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: BORDER, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8 },
+  documentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
   documentName: { flex: 1, marginLeft: 8, color: TEXT, fontSize: 14 },
 
   addAttachmentButton: {
