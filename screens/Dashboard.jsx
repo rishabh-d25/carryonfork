@@ -7,14 +7,13 @@ import {
   ActivityIndicator,
   Image,
   ImageBackground,
-  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
@@ -127,12 +126,16 @@ export default function Dashboard() {
   const onCreateTripPress = () => router.push("/createtrip");
   const onUpcomingPress = () => router.push("/upcoming");
   const onInvitesPress = () => router.push("/invites");
-  
-  const onSettingsPress = () => 
-    router.push({
+
+  const onSettingsPress = () => {
+    if(user){
+      router.push({
       pathname: "/settings",
       params: {  userId: user.uid },
     });
+    }
+  }
+    
 
   const onBackPress = () => router.back();
 
@@ -363,7 +366,7 @@ const styles = StyleSheet.create({
   },
 
   topRow: {
-    paddingTop: Platform.OS === "android" ? 10 : 4,
+    paddingTop: 0,
     paddingBottom: 6,
     flexDirection: "row",
     alignItems: "center",

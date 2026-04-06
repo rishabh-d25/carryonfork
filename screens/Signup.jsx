@@ -31,8 +31,8 @@ export default function Auth() {
 
   const onSignUpPress = async () => {
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      const uid = userCredential.user.uid;
+      const userinfo = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const uid = userinfo.user.uid;
 
       await setDoc(doc(db, "users", uid), {
         username: username.trim(),

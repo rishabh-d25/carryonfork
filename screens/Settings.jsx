@@ -1,22 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, StatusBar, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 
-// 🔑 OpenCage API
-const OPENCAGE_API_KEY = "252b650d2acb4397ab93916025da875e";
-
-// 🔥 Firebase
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
+
+const API_KEY = "252b650d2acb4397ab93916025da875e";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams();
 
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  // ---------------- STATE ----------------
   const [loading, setLoading] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   const [street, setStreet] = useState("");
   const [city, setCity] = useState("");
@@ -30,131 +29,88 @@ export default function SettingsScreen() {
     longitudeDelta: 0.05,
   });
 
-  const [marker, setMarker] = useState({
-    latitude: 37.7749,
-    longitude: -122.4194,
-  });
+  const [marker, setMarker] = useState(region);
 
-  // 📥 Load saved location from Firebase
+  // ---------------- HELPERS ----------------
+  const address = `${street} ${city} ${state} ${zip}`.trim();
+
+  const updateMap = (lat, lng) => {
+    setRegion({ ...region, latitude: lat, longitude: lng });
+    setMarker({ latitude: lat, longitude: lng });
+  };
+
+  // ---------------- FIREBASE LOAD ----------------
   useEffect(() => {
-    const loadUserData = async () => {
-      if (!userId) return;
+    if (!userId) return;
 
+    (async () => {
       try {
-        const userRef = doc(db, "users", userId);
-        const docSnap = await getDoc(userRef);
+        const snap = await getDoc(doc(db, "users", userId));
+        const loc = snap.data()?.location;
 
-        if (docSnap.exists()) {
-          const data = docSnap.data();
+        if (loc) {
+          setStreet(loc.street || "");
+          setCity(loc.city || "");
+          setState(loc.state || "");
+          setZip(loc.zip || "");
 
-          if (data.location) {
-            const loc = data.location;
-
-            setStreet(loc.street || "");
-            setCity(loc.city || "");
-            setState(loc.state || "");
-            setZip(loc.zip || "");
-
-            if (loc.latitude && loc.longitude) {
-              setRegion({
-                latitude: loc.latitude,
-                longitude: loc.longitude,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
-              });
-
-              setMarker({
-                latitude: loc.latitude,
-                longitude: loc.longitude,
-              });
-            }
+          if (loc.latitude && loc.longitude) {
+            updateMap(loc.latitude, loc.longitude);
           }
         }
-      } catch (error) {
-        console.error("Error loading user data:", error);
+      } catch (e) {
+        console.log(e);
       } finally {
         setLoading(false);
       }
-    };
-
-    loadUserData();
+    })();
   }, [userId]);
 
-  const buildAddress = () => {
-    return `${street} ${city} ${state} ${zip}`.trim();
-  };
-
-  // 📍 Forward Geocoding
-  const fetchCoordinates = async () => {
-    const address = buildAddress();
+  // ---------------- GEOCODING ----------------
+  const geocode = async () => {
     if (!address) return;
 
     try {
-      const res = await fetch(
-        `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${OPENCAGE_API_KEY}`
-      );
+      const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${API_KEY}`);
       const data = await res.json();
 
-      if (data.results && data.results.length > 0) {
-        const { lat, lng } = data.results[0].geometry;
-
-        setRegion({
-          latitude: lat,
-          longitude: lng,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-
-        setMarker({ latitude: lat, longitude: lng });
-      }
-    } catch (err) {
-      console.error(err);
+      const loc = data.results?.[0]?.geometry;
+      if (loc) updateMap(loc.lat, loc.lng);
+    } catch (e) {
+      console.log(e);
     }
   };
 
-  // 📍 Reverse Geocoding
-  const fetchAddressFromCoords = async (latitude, longitude) => {
+  const reverseGeocode = async (lat, lng) => {
     try {
-      const res = await fetch(
-        `https://api.opencagedata.com/geocode/v1/json?q=${latitude}+${longitude}&key=${OPENCAGE_API_KEY}`
-      );
+      const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${API_KEY}`);
       const data = await res.json();
 
-      if (data.results && data.results.length > 0) {
-        const components = data.results[0].components;
+      const c = data.results?.[0]?.components;
+      if (!c) return;
 
-        setStreet(components.road || "");
-        setCity(components.city || components.town || components.village || "");
-        setState(components.state || "");
-        setZip(components.postcode || "");
-      }
-    } catch (err) {
-      console.error(err);
+      setStreet(c.road || "");
+      setCity(c.city || c.town || c.village || "");
+      setState(c.state || "");
+      setZip(c.postcode || "");
+    } catch (e) {
+      console.log(e);
     }
   };
 
-  const handleMapPress = (e) => {
+  // ---------------- MAP ----------------
+  const onMapPress = (e) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
-
-    setMarker({ latitude, longitude });
-
-    setRegion({
-      ...region,
-      latitude,
-      longitude,
-    });
-
-    fetchAddressFromCoords(latitude, longitude);
+    updateMap(latitude, longitude);
+    reverseGeocode(latitude, longitude);
   };
 
-  // 💾 Save to Firebase
-  const saveLocationToFirebase = async () => {
+  // ---------------- SAVE ----------------
+  const saveLocation = async () => {
     if (!userId) return;
 
     try {
-      const userRef = doc(db, "users", userId);
-
-      await updateDoc(userRef, {
+      await updateDoc(doc(db, "users", userId), {
         location: {
           street,
           city,
@@ -165,16 +121,17 @@ export default function SettingsScreen() {
         },
       });
 
-      alert("Location saved successfully!");
-    } catch (error) {
-      console.error(error);
-      alert("Error saving location");
+      alert("Saved!");
+    } catch (e) {
+      console.log(e);
+      alert("Error saving");
     }
   };
 
+  // ---------------- UI ----------------
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}> 
+      <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color="#007BFF" />
       </View>
     );
@@ -183,45 +140,38 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.topRow}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-          </TouchableOpacity>
-          <Text style={styles.topTitle}>Before You Travel</Text>
-          <View style={{ width: 36 }} />
-    </View>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={24} />
+        </TouchableOpacity>
+        <Text style={styles.title}>Settings</Text>
+        <View style={{ width: 24 }} />
+      </View>
 
-      {/* Toggle */}
       <View style={styles.row}>
-        <Text style={styles.label}>Enable Notifications</Text>
+        <Text style={styles.label}>Notifications</Text>
         <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} />
       </View>
 
-      {/* Address Fields */}
-      <Text style={styles.label}>Street</Text>
-      <TextInput style={styles.input} value={street} onChangeText={setStreet} />
+      {[{ label: "Street", val: street, set: setStreet },
+        { label: "City", val: city, set: setCity },
+        { label: "State", val: state, set: setState },
+        { label: "ZIP", val: zip, set: setZip }].map((f, i) => (
+        <View key={i}>
+          <Text style={styles.label}>{f.label}</Text>
+          <TextInput style={styles.input} value={f.val} onChangeText={f.set} keyboardType={f.label === "ZIP" ? "numeric" : "default"} />
+        </View>
+      ))}
 
-      <Text style={styles.label}>City</Text>
-      <TextInput style={styles.input} value={city} onChangeText={setCity} />
-
-      <Text style={styles.label}>State</Text>
-      <TextInput style={styles.input} value={state} onChangeText={setState} />
-
-      <Text style={styles.label}>ZIP Code</Text>
-      <TextInput style={styles.input} value={zip} onChangeText={setZip} keyboardType="numeric" />
-
-      {/* Show on Map */}
-      <TouchableOpacity style={styles.button} onPress={fetchCoordinates}>
-        <Text style={styles.buttonText}>Show on Map</Text>
+      <TouchableOpacity style={styles.button} onPress={geocode}>
+        <Text style={styles.btnText}>Show on Map</Text>
       </TouchableOpacity>
 
-      {/* Save */}
-      <TouchableOpacity style={styles.saveButton} onPress={saveLocationToFirebase}>
-        <Text style={styles.buttonText}>Save Location</Text>
+      <TouchableOpacity style={[styles.button, styles.save]} onPress={saveLocation}>
+        <Text style={styles.btnText}>Save Location</Text>
       </TouchableOpacity>
 
-      {/* Map */}
-      <View style={styles.mapContainer}>
-        <MapView style={styles.map} region={region} onPress={handleMapPress}>
+      <View style={styles.mapWrap}>
+        <MapView style={styles.map} region={region} onPress={onMapPress}>
           <Marker coordinate={marker} />
         </MapView>
       </View>
@@ -232,36 +182,26 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#fff",
     padding: 16,
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight + 10 : 50,
+    paddingTop: 50,
   },
-  topRow: {
-    paddingTop: Platform.OS === "android" ? 10 : 4,
-    paddingBottom: 8,
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-  },
-  backBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  topTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    color: "#007BFF",
-    marginBottom: 6,
-  },
+  center: { justifyContent: "center", alignItems: "center" },
+
+  topRow: { paddingTop: 50, flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  title: { fontSize: 16, fontWeight: "700" },
+
+  row: { paddingTop: 20, flexDirection: "row", justifyContent: "space-between", marginBottom: 20 },
+  label: { color: "#007BFF", marginBottom: 5 },
+
   input: {
     borderWidth: 1,
     borderColor: "#007BFF",
     borderRadius: 8,
     padding: 10,
-    marginBottom: 12,
-    color: "#000",
+    marginBottom: 10,
   },
+
   button: {
     backgroundColor: "#007BFF",
     padding: 12,
@@ -269,23 +209,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-  saveButton: {
-    backgroundColor: "#0056D2",
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  mapContainer: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  map: {
-    flex: 1,
-  },
+  save: { backgroundColor: "#0056D2" },
+  btnText: { color: "#fff", fontWeight: "bold" },
+
+  mapWrap: { flex: 1, borderRadius: 12, overflow: "hidden" },
+  map: { flex: 1 },
 });
