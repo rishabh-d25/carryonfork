@@ -150,13 +150,15 @@ export default function Dashboard() {
   const onUpcomingPress = () => router.push("/upcoming");
   const onInvitesPress = () => router.push("/invites");
   
-  const onSettingsPress = () => 
-    router.push({
+  const onSettingsPress = () => {
+    if (user){
+      router.push({
       pathname: "/settings",
       params: { userId: user.uid },
     });
     }
   }
+  
     
 
   const onBackPress = () => router.back();
