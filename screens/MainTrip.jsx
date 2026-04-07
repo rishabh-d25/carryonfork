@@ -17,14 +17,12 @@ import {
 } from "react-native";
 
 import {
-  collection,
   deleteDoc,
   doc,
-  getDocs,
+  getDoc,
   onSnapshot,
-  query,
+  setDoc,
   updateDoc,
-  where,
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
@@ -65,6 +63,7 @@ export default function MainTrip() {
     slot4: emptyPhotoSlot(),
   });
   const [heroPhoto, setHeroPhoto] = useState(emptyPhotoSlot());
+  const [openingChat, setOpeningChat] = useState(false);
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -124,7 +123,7 @@ export default function MainTrip() {
   const onJournal = () =>
     router.push({
       pathname: "/journal",
-      params: {journalId },
+      params: { journalId },
     });
 
   const onItinerary = () =>
@@ -163,87 +162,88 @@ export default function MainTrip() {
     }
   };
 
-const saveHeroPhotoInfo = async (asset, sourceSlot = "") => {
-  const user = auth.currentUser;
-  if (!user || !tripId || !asset?.uri) return;
+  const saveHeroPhotoInfo = async (asset, sourceSlot = "") => {
+    const user = auth.currentUser;
+    if (!user || !tripId || !asset?.uri) return;
 
-  try {
-    const tripRef = doc(db, "users", user.uid, "trips", tripId);
+    try {
+      const tripRef = doc(db, "users", user.uid, "trips", tripId);
 
-    await updateDoc(tripRef, {
-      heroPhoto: {
-        uri: asset.uri,
-        fileName: asset.fileName || "hero-photo.jpg",
-        updatedAt: new Date().toISOString(),
-        sourceSlot,
-      },
-      imageUrl: asset.uri,
-    });
-  } catch (error) {
-    console.log("SAVE HERO PHOTO ERROR:", error);
-    Alert.alert("Error", "Could not save main photo.");
-  }
-};
-const removePhotoFromTrip = async (slotId) => {
-  const user = auth.currentUser;
-  if (!user || !tripId) return;
-
-  try {
-    const tripRef = doc(db, "users", user.uid, "trips", tripId);
-
-    const wasHeroSource = heroPhoto?.sourceSlot === slotId;
-    const nextPhotos = {
-      ...tripPhotos,
-      [slotId]: emptyPhotoSlot(),
-    };
-
-    const fallbackUri =
-      nextPhotos?.slot1?.uri ||
-      nextPhotos?.slot2?.uri ||
-      nextPhotos?.slot3?.uri ||
-      nextPhotos?.slot4?.uri ||
-      "";
-
-    if (wasHeroSource) {
       await updateDoc(tripRef, {
-        [`tripPhotos.${slotId}`]: emptyPhotoSlot(),
+        heroPhoto: {
+          uri: asset.uri,
+          fileName: asset.fileName || "hero-photo.jpg",
+          updatedAt: new Date().toISOString(),
+          sourceSlot,
+        },
+        imageUrl: asset.uri,
+      });
+    } catch (error) {
+      console.log("SAVE HERO PHOTO ERROR:", error);
+      Alert.alert("Error", "Could not save main photo.");
+    }
+  };
+
+  const removePhotoFromTrip = async (slotId) => {
+    const user = auth.currentUser;
+    if (!user || !tripId) return;
+
+    try {
+      const tripRef = doc(db, "users", user.uid, "trips", tripId);
+
+      const wasHeroSource = heroPhoto?.sourceSlot === slotId;
+      const nextPhotos = {
+        ...tripPhotos,
+        [slotId]: emptyPhotoSlot(),
+      };
+
+      const fallbackUri =
+        nextPhotos?.slot1?.uri ||
+        nextPhotos?.slot2?.uri ||
+        nextPhotos?.slot3?.uri ||
+        nextPhotos?.slot4?.uri ||
+        "";
+
+      if (wasHeroSource) {
+        await updateDoc(tripRef, {
+          [`tripPhotos.${slotId}`]: emptyPhotoSlot(),
+          heroPhoto: emptyPhotoSlot(),
+          imageUrl: fallbackUri,
+        });
+      } else {
+        await updateDoc(tripRef, {
+          [`tripPhotos.${slotId}`]: emptyPhotoSlot(),
+        });
+      }
+    } catch (error) {
+      console.log("REMOVE PHOTO ERROR:", error);
+      Alert.alert("Error", "Could not remove photo.");
+    }
+  };
+
+  const removeHeroPhoto = async () => {
+    const user = auth.currentUser;
+    if (!user || !tripId) return;
+
+    try {
+      const tripRef = doc(db, "users", user.uid, "trips", tripId);
+
+      const fallbackUri =
+        tripPhotos?.slot1?.uri ||
+        tripPhotos?.slot2?.uri ||
+        tripPhotos?.slot3?.uri ||
+        tripPhotos?.slot4?.uri ||
+        "";
+
+      await updateDoc(tripRef, {
         heroPhoto: emptyPhotoSlot(),
         imageUrl: fallbackUri,
       });
-    } else {
-      await updateDoc(tripRef, {
-        [`tripPhotos.${slotId}`]: emptyPhotoSlot(),
-      });
+    } catch (error) {
+      console.log("REMOVE HERO PHOTO ERROR:", error);
+      Alert.alert("Error", "Could not remove main photo.");
     }
-  } catch (error) {
-    console.log("REMOVE PHOTO ERROR:", error);
-    Alert.alert("Error", "Could not remove photo.");
-  }
-};
-
-const removeHeroPhoto = async () => {
-  const user = auth.currentUser;
-  if (!user || !tripId) return;
-
-  try {
-    const tripRef = doc(db, "users", user.uid, "trips", tripId);
-
-    const fallbackUri =
-      tripPhotos?.slot1?.uri ||
-      tripPhotos?.slot2?.uri ||
-      tripPhotos?.slot3?.uri ||
-      tripPhotos?.slot4?.uri ||
-      "";
-
-    await updateDoc(tripRef, {
-      heroPhoto: emptyPhotoSlot(),
-      imageUrl: fallbackUri,
-    });
-  } catch (error) {
-    console.log("REMOVE HERO PHOTO ERROR:", error);
-    Alert.alert("Error", "Could not remove main photo.");
-  }
-};
+  };
 
   const pickFromLibrary = async (slotId) => {
     try {
@@ -378,6 +378,43 @@ const removeHeroPhoto = async () => {
     ]);
   };
 
+const onOpenChat = async () => {
+  const user = auth.currentUser;
+
+  if (!user || !tripId || openingChat) return;
+
+  try {
+    setOpeningChat(true);
+
+    const chatRef = doc(db, "groupchats", tripId);
+    const chatSnap = await getDoc(chatRef);
+
+    if (!chatSnap.exists()) {
+      await setDoc(chatRef, {
+        tripId,
+        tripTitle,
+        ownerUid: user.uid,
+        members: [user.uid],
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    router.push({
+      pathname: "/chat",
+      params: {
+        chatId: tripId,
+        tripId,
+        title: tripTitle,
+      },
+    });
+  } catch (error) {
+    console.log("CHAT LOAD ERROR:", error);
+    Alert.alert("Error", error?.message || "Cannot open chat.");
+  } finally {
+    setOpeningChat(false);
+  }
+};
+
   const actuallyDeleteTrip = async () => {
     const user = auth.currentUser;
 
@@ -442,28 +479,14 @@ const removeHeroPhoto = async () => {
           </Text>
 
           <View style={styles.rightIcons}>
-            <Pressable
-              onPress={async () => {
-                try {
-                  const q = query(
-                    collection(db, "groupchats"),
-                    where("tripId", "==", tripId)
-                  );
-                  const snapshot = await getDocs(q);
-
-                  if (!snapshot.empty) {
-                    const chatId = snapshot.docs[0].id;
-                    router.push({ pathname: "/chat", params: { chatId } });
-                  }
-                } catch (error) {
-                  console.log("CHAT LOAD ERROR:", error);
-                }
-              }}
-              style={[styles.iconButton, { justifyContent: "center" }]}
-              hitSlop={8}
-            >
-              <Ionicons name="chatbubble-outline" size={20} color={BLUE} />
-            </Pressable>
+        <Pressable
+          onPress={onOpenChat}
+          style={[styles.iconButton, { justifyContent: "center" }]}
+          hitSlop={8}
+          disabled={openingChat}
+        >
+          <Ionicons name="chatbubble-outline" size={20} color={BLUE} />
+        </Pressable>
 
             <Pressable
               onPress={onDeleteTrip}
