@@ -1,11 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
-import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   SafeAreaView,
@@ -67,11 +65,95 @@ function formatDateRange(startDate, endDate) {
   return `${startText}-${endText}`;
 }
 
+function getStringValue(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function getTripPreviewImage(trip) {
+  if (!trip) return "";
+
+  const directCandidates = [
+    trip.imageUrl,
+    trip.mainImage,
+    trip.mainImageUri,
+    trip.mainTripImage,
+    trip.mainTripImageUri,
+    trip.heroImage,
+    trip.heroImageUri,
+    trip.selectedImage,
+    trip.selectedImageUri,
+    trip.coverImage,
+    trip.coverImageUri,
+  ];
+
+  for (const candidate of directCandidates) {
+    const valid = getStringValue(candidate);
+    if (valid) return valid;
+  }
+
+  const placeholderCandidates = [
+    trip.placeholder1,
+    trip.placeholder2,
+    trip.placeholder3,
+    trip.placeholder4,
+    trip.placeholderImage1,
+    trip.placeholderImage2,
+    trip.placeholderImage3,
+    trip.placeholderImage4,
+    trip.photo1,
+    trip.photo2,
+    trip.photo3,
+    trip.photo4,
+  ];
+
+  for (const candidate of placeholderCandidates) {
+    const valid = getStringValue(candidate);
+    if (valid) return valid;
+  }
+
+  if (Array.isArray(trip.placeholders)) {
+    for (const item of trip.placeholders) {
+      if (!item) continue;
+
+      if (typeof item === "string" && item.trim()) {
+        return item.trim();
+      }
+
+      if (typeof item === "object") {
+        const valid =
+          getStringValue(item.uri) ||
+          getStringValue(item.imageUrl) ||
+          getStringValue(item.downloadURL);
+        if (valid) return valid;
+      }
+    }
+  }
+
+  if (Array.isArray(trip.images)) {
+    for (const item of trip.images) {
+      if (!item) continue;
+
+      if (typeof item === "string" && item.trim()) {
+        return item.trim();
+      }
+
+      if (typeof item === "object") {
+        const valid =
+          getStringValue(item.uri) ||
+          getStringValue(item.imageUrl) ||
+          getStringValue(item.downloadURL);
+        if (valid) return valid;
+      }
+    }
+  }
+
+  return "";
+}
+
 export default function PastTripList() {
   const router = useRouter();
   const [pastTrips, setPastTrips] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [updatingTripId, setUpdatingTripId] = useState(null);
 
   const loadPastTrips = async () => {
     try {
@@ -87,10 +169,14 @@ export default function PastTripList() {
       const snapshot = await getDocs(tripsRef);
 
       const loadedTrips = snapshot.docs
-        .map((tripDoc) => ({
-          id: tripDoc.id,
-          ...tripDoc.data(),
-        }))
+        .map((tripDoc) => {
+          const data = tripDoc.data() || {};
+          return {
+            id: tripDoc.id,
+            ...data,
+            previewImage: getTripPreviewImage(data),
+          };
+        })
         .filter((trip) => isPastTrip(trip))
         .sort((a, b) => {
           const aEnd = getTimestampMillis(a.endDate);
@@ -112,127 +198,6 @@ export default function PastTripList() {
       loadPastTrips();
     }, [])
   );
-
-  const saveTripPhotoUri = async (trip, uri) => {
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        Alert.alert("Not logged in", "Please log in first.");
-        return;
-      }
-
-      setUpdatingTripId(trip.id);
-
-      const tripRef = doc(db, "users", user.uid, "trips", trip.id);
-
-      await updateDoc(tripRef, {
-        imageUrl: uri,
-      });
-
-      setPastTrips((currentTrips) =>
-        currentTrips.map((item) =>
-          item.id === trip.id ? { ...item, imageUrl: uri } : item
-        )
-      );
-    } catch (error) {
-      console.log("saveTripPhotoUri error:", error);
-      Alert.alert("Error", "Could not save photo.");
-    } finally {
-      setUpdatingTripId(null);
-    }
-  };
-
-  const pickFromLibrary = async (trip) => {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow photo library access.");
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: false,
-        allowsMultipleSelection: false,
-      });
-
-      if (result.canceled) return;
-
-      const selectedUri = result.assets?.[0]?.uri;
-      if (!selectedUri) return;
-
-      await saveTripPhotoUri(trip, selectedUri);
-    } catch (error) {
-      console.log("pickFromLibrary error:", error);
-      Alert.alert("Error", "Could not add photo.");
-    }
-  };
-
-  const takePhoto = async (trip) => {
-    try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow camera access.");
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-        allowsEditing: false,
-      });
-
-      if (result.canceled) return;
-
-      const selectedUri = result.assets?.[0]?.uri;
-      if (!selectedUri) return;
-
-      await saveTripPhotoUri(trip, selectedUri);
-    } catch (error) {
-      console.log("takePhoto error:", error);
-      Alert.alert("Error", "Could not take photo.");
-    }
-  };
-
-  const removePhoto = async (trip) => {
-    try {
-      const user = auth.currentUser;
-      if (!user) return;
-
-      setUpdatingTripId(trip.id);
-
-      const tripRef = doc(db, "users", user.uid, "trips", trip.id);
-
-      await updateDoc(tripRef, {
-        imageUrl: "",
-      });
-
-      setPastTrips((currentTrips) =>
-        currentTrips.map((item) =>
-          item.id === trip.id ? { ...item, imageUrl: "" } : item
-        )
-      );
-    } catch (error) {
-      console.log("removePhoto error:", error);
-      Alert.alert("Error", "Could not remove photo.");
-    } finally {
-      setUpdatingTripId(null);
-    }
-  };
-
-  const onChangePhoto = (trip) => {
-    Alert.alert("Trip Photo", "Choose what you want to add.", [
-      { text: "Take Photo", onPress: () => takePhoto(trip) },
-      { text: "Upload Photo", onPress: () => pickFromLibrary(trip) },
-      ...(trip.imageUrl
-        ? [{ text: "Remove Photo", style: "destructive", onPress: () => removePhoto(trip) }]
-        : []),
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
 
   const tripCards = useMemo(() => {
     return pastTrips.map((trip) => ({
@@ -269,8 +234,6 @@ export default function PastTripList() {
           showsVerticalScrollIndicator={false}
         >
           {tripCards.map((trip) => {
-            const isUpdating = updatingTripId === trip.id;
-
             return (
               <Pressable
                 key={trip.id}
@@ -285,8 +248,8 @@ export default function PastTripList() {
                   })
                 }
               >
-                {trip.imageUrl ? (
-                  <Image source={{ uri: trip.imageUrl }} style={styles.cardImage} />
+                {trip.previewImage ? (
+                  <Image source={{ uri: trip.previewImage }} style={styles.cardImage} />
                 ) : (
                   <View style={styles.placeholderImage}>
                     <Ionicons name="image-outline" size={26} color="#9CA3AF" />
@@ -301,29 +264,6 @@ export default function PastTripList() {
                   {!!trip.dateText && (
                     <Text style={styles.cardDates}>{trip.dateText}</Text>
                   )}
-
-                  <Pressable
-                    style={styles.changePhotoBtn}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      onChangePhoto(trip);
-                    }}
-                  >
-                    <Ionicons
-                      name={trip.imageUrl ? "create-outline" : "camera-outline"}
-                      size={14}
-                      color={BLUE}
-                    />
-                    <Text style={styles.changePhotoText}>Change Photo</Text>
-
-                    {isUpdating && (
-                      <ActivityIndicator
-                        size="small"
-                        color={BLUE}
-                        style={styles.photoLoader}
-                      />
-                    )}
-                  </Pressable>
                 </View>
 
                 <Ionicons name="chevron-forward" size={18} color="#6B7280" />
@@ -426,23 +366,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: BLUE,
     fontWeight: "600",
-  },
-
-  changePhotoBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-    alignSelf: "flex-start",
-  },
-
-  changePhotoText: {
-    marginLeft: 6,
-    fontSize: 13,
-    fontWeight: "600",
-    color: BLUE,
-  },
-
-  photoLoader: {
-    marginLeft: 8,
   },
 });

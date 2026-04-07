@@ -163,58 +163,87 @@ export default function MainTrip() {
     }
   };
 
-  const saveHeroPhotoInfo = async (asset, sourceSlot = "") => {
-    const user = auth.currentUser;
-    if (!user || !tripId || !asset?.uri) return;
+const saveHeroPhotoInfo = async (asset, sourceSlot = "") => {
+  const user = auth.currentUser;
+  if (!user || !tripId || !asset?.uri) return;
 
-    try {
-      const tripRef = doc(db, "users", user.uid, "trips", tripId);
+  try {
+    const tripRef = doc(db, "users", user.uid, "trips", tripId);
 
+    await updateDoc(tripRef, {
+      heroPhoto: {
+        uri: asset.uri,
+        fileName: asset.fileName || "hero-photo.jpg",
+        updatedAt: new Date().toISOString(),
+        sourceSlot,
+      },
+      imageUrl: asset.uri,
+    });
+  } catch (error) {
+    console.log("SAVE HERO PHOTO ERROR:", error);
+    Alert.alert("Error", "Could not save main photo.");
+  }
+};
+const removePhotoFromTrip = async (slotId) => {
+  const user = auth.currentUser;
+  if (!user || !tripId) return;
+
+  try {
+    const tripRef = doc(db, "users", user.uid, "trips", tripId);
+
+    const wasHeroSource = heroPhoto?.sourceSlot === slotId;
+    const nextPhotos = {
+      ...tripPhotos,
+      [slotId]: emptyPhotoSlot(),
+    };
+
+    const fallbackUri =
+      nextPhotos?.slot1?.uri ||
+      nextPhotos?.slot2?.uri ||
+      nextPhotos?.slot3?.uri ||
+      nextPhotos?.slot4?.uri ||
+      "";
+
+    if (wasHeroSource) {
       await updateDoc(tripRef, {
-        heroPhoto: {
-          uri: asset.uri,
-          fileName: asset.fileName || "hero-photo.jpg",
-          updatedAt: new Date().toISOString(),
-          sourceSlot,
-        },
+        [`tripPhotos.${slotId}`]: emptyPhotoSlot(),
+        heroPhoto: emptyPhotoSlot(),
+        imageUrl: fallbackUri,
       });
-    } catch (error) {
-      console.log("SAVE HERO PHOTO ERROR:", error);
-      Alert.alert("Error", "Could not save main photo.");
-    }
-  };
-
-  const removePhotoFromTrip = async (slotId) => {
-    const user = auth.currentUser;
-    if (!user || !tripId) return;
-
-    try {
-      const tripRef = doc(db, "users", user.uid, "trips", tripId);
-
+    } else {
       await updateDoc(tripRef, {
         [`tripPhotos.${slotId}`]: emptyPhotoSlot(),
       });
-    } catch (error) {
-      console.log("REMOVE PHOTO ERROR:", error);
-      Alert.alert("Error", "Could not remove photo.");
     }
-  };
+  } catch (error) {
+    console.log("REMOVE PHOTO ERROR:", error);
+    Alert.alert("Error", "Could not remove photo.");
+  }
+};
 
-  const removeHeroPhoto = async () => {
-    const user = auth.currentUser;
-    if (!user || !tripId) return;
+const removeHeroPhoto = async () => {
+  const user = auth.currentUser;
+  if (!user || !tripId) return;
 
-    try {
-      const tripRef = doc(db, "users", user.uid, "trips", tripId);
+  try {
+    const tripRef = doc(db, "users", user.uid, "trips", tripId);
 
-      await updateDoc(tripRef, {
-        heroPhoto: emptyPhotoSlot(),
-      });
-    } catch (error) {
-      console.log("REMOVE HERO PHOTO ERROR:", error);
-      Alert.alert("Error", "Could not remove main photo.");
-    }
-  };
+    const fallbackUri =
+      tripPhotos?.slot1?.uri ||
+      tripPhotos?.slot2?.uri ||
+      tripPhotos?.slot3?.uri ||
+      tripPhotos?.slot4?.uri ||
+      "";
+
+    await updateDoc(tripRef, {
+      heroPhoto: emptyPhotoSlot(),
+      imageUrl: fallbackUri,
+    });
+  } catch (error) {
+    console.log("REMOVE HERO PHOTO ERROR:", error);
+    Alert.alert("Error", "Could not remove main photo.");
+  }
+};
 
   const pickFromLibrary = async (slotId) => {
     try {
