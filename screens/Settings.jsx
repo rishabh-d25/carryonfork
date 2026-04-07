@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -13,8 +13,6 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams();
 
-  // ---------------- STATE ----------------
-  const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   const [street, setStreet] = useState("");
@@ -31,7 +29,6 @@ export default function SettingsScreen() {
 
   const [marker, setMarker] = useState(region);
 
-  // ---------------- HELPERS ----------------
   const address = `${street} ${city} ${state} ${zip}`.trim();
 
   const updateMap = (lat, lng) => {
@@ -39,73 +36,58 @@ export default function SettingsScreen() {
     setMarker({ latitude: lat, longitude: lng });
   };
 
-  // ---------------- FIREBASE LOAD ----------------
   useEffect(() => {
     if (!userId) return;
 
     (async () => {
-      try {
-        const snap = await getDoc(doc(db, "users", userId));
-        const loc = snap.data()?.location;
+      const userdoc = await getDoc(doc(db, "users", userId));
+        const loc = userdoc.data()?.location;
 
         if (loc) {
-          setStreet(loc.street || "");
-          setCity(loc.city || "");
-          setState(loc.state || "");
-          setZip(loc.zip || "");
+          setStreet(loc.street);
+          setCity(loc.city);
+          setState(loc.state);
+          setZip(loc.zip);
 
           if (loc.latitude && loc.longitude) {
             updateMap(loc.latitude, loc.longitude);
           }
         }
-      } catch (e) {
-        console.log(e);
-      } finally {
-        setLoading(false);
-      }
     })();
   }, [userId]);
 
-  // ---------------- GEOCODING ----------------
+
   const geocode = async () => {
     if (!address) return;
 
-    try {
-      const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${API_KEY}`);
+    const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${API_KEY}`);
       const data = await res.json();
 
       const loc = data.results?.[0]?.geometry;
       if (loc) updateMap(loc.lat, loc.lng);
-    } catch (e) {
-      console.log(e);
-    }
   };
 
   const reverseGeocode = async (lat, lng) => {
-    try {
-      const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${API_KEY}`);
+    const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${API_KEY}`);
       const data = await res.json();
 
-      const c = data.results?.[0]?.components;
-      if (!c) return;
+      const mapaddress = data.results?.[0]?.components;
+      if (!mapaddress) return;
 
-      setStreet(c.road || "");
-      setCity(c.city || c.town || c.village || "");
-      setState(c.state || "");
-      setZip(c.postcode || "");
-    } catch (e) {
-      console.log(e);
-    }
+      setStreet(mapaddress.road );
+      setCity(mapaddress.city || mapaddress.town || mapaddress.village);
+      setState(mapaddress.state);
+      setZip(mapaddress.postcode);
   };
 
-  // ---------------- MAP ----------------
+  
   const onMapPress = (e) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
     updateMap(latitude, longitude);
     reverseGeocode(latitude, longitude);
   };
 
-  // ---------------- SAVE ----------------
+  
   const saveLocation = async () => {
     if (!userId) return;
 
@@ -128,14 +110,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // ---------------- UI ----------------
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#007BFF" />
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>

@@ -44,60 +44,12 @@ export default function CreateTrip() {
     return new Date(Number(year), Number(month) - 1, Number(day));
   }
 
-  function isValidDateParts(year, month, day) {
-    if (!year || !month || !day) return false;
-
-    const y = Number(year);
-    const m = Number(month);
-    const d = Number(day);
-
-    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) {
-      return false;
-    }
-
-    if (m < 1 || m > 12) return false;
-    if (d < 1 || d > 31) return false;
-    if (String(year).length !== 4) return false;
-
-    const built = new Date(y, m - 1, d);
-
-    return (
-      built.getFullYear() === y &&
-      built.getMonth() === m - 1 &&
-      built.getDate() === d
-    );
-  }
-
   async function handleCreate() {
     const user = auth.currentUser;
-
-    if (!user) {
-      Alert.alert("Not logged in", "Please log in before creating a trip.");
-      return;
-    }
-
-    if (!location.trim()) {
-      Alert.alert("Missing location", "Please enter a location.");
-      return;
-    }
-
-    if (!isValidDateParts(startYear, startMonth, startDay)) {
-      Alert.alert("Invalid start date", "Please enter a valid start date.");
-      return;
-    }
-
-    if (!isValidDateParts(endYear, endMonth, endDay)) {
-      Alert.alert("Invalid end date", "Please enter a valid end date.");
-      return;
-    }
 
     const startDateObj = buildDate(startYear, startMonth, startDay);
     const endDateObj = buildDate(endYear, endMonth, endDay);
 
-    if (endDateObj < startDateObj) {
-      Alert.alert("Invalid dates", "End date cannot be before start date.");
-      return;
-    }
 
     try {
       setCreating(true);
@@ -108,7 +60,7 @@ export default function CreateTrip() {
         title: tripTitle,
         location: location.trim(),
         description: description.trim(),
-        budget: parseFloat(budget) || 0,
+        budget: parseFloat(budget),
         withGroup,
         startDate: Timestamp.fromDate(startDateObj),
         endDate: Timestamp.fromDate(endDateObj),
@@ -120,7 +72,6 @@ export default function CreateTrip() {
       const tripRef = collection(db, "users", user.uid, "trips");
       const tripDocRef = await addDoc(tripRef, tripData);
 
-      // Create journal with its own auto-generated ID and capture it
       const journalDocRef = await addDoc(
         collection(db, "users", user.uid, "journals"),
         {
@@ -141,7 +92,7 @@ export default function CreateTrip() {
         pathname: "/maintrip",
         params: {
           tripId: tripDocRef.id,
-          journalId: journalDocRef.id, // pass the real journal doc ID separately
+          journalId: journalDocRef.id,
           title: tripTitle,
         },
       });

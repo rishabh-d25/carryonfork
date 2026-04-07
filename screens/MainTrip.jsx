@@ -124,7 +124,7 @@ export default function MainTrip() {
   const onJournal = () =>
     router.push({
       pathname: "/journal",
-      params: { tripId, journalId },
+      params: {journalId },
     });
 
   const onItinerary = () =>

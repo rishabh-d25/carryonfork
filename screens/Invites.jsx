@@ -2,27 +2,27 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import {
-    addDoc,
-    arrayUnion,
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    onSnapshot,
-    serverTimestamp,
-    updateDoc
+  addDoc,
+  arrayUnion,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  updateDoc
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
@@ -33,7 +33,7 @@ const BG = "#F7F7F7";
 
 export default function InvitesScreen() {
   const router = useRouter();
-  const currentUser = auth.currentUser;
+  const user = auth.currentUser;
 
   const [loading, setLoading] = useState(true);
   const [invites, setInvites] = useState([]);
@@ -41,9 +41,8 @@ export default function InvitesScreen() {
 
   // Real-time invites listener
   useEffect(() => {
-    if (!currentUser) return;
 
-    const invitesRef = collection(db, "users", currentUser.uid, "invites");
+    const invitesRef = collection(db, "users", user.uid, "invites");
     const unsubscribe = onSnapshot(invitesRef, async (snapshot) => {
       const raw = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 
