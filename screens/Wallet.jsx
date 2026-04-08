@@ -3,11 +3,11 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
-    Alert, Animated, Dimensions, KeyboardAvoidingView, Modal,
+    Animated, Dimensions, KeyboardAvoidingView, Modal,
     Platform, Pressable, SafeAreaView, ScrollView, StatusBar,
-    StyleSheet, Text, TextInput, TouchableOpacity, View,
+    StyleSheet, Text, TextInput, TouchableOpacity, View
 } from "react-native";
-import { Circle, Line, Svg } from "react-native-svg";
+import { Line, Svg } from "react-native-svg";
 import { auth, db } from "../firebaseConfig";
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -18,114 +18,101 @@ export default function WalletScreen() {
   const router = useRouter();
   const { tripId } = useLocalSearchParams();
 
-  // state
   const [budget, setBudget] = useState(0);
   const [tripDays, setTripDays] = useState(1);
   const [expenses, setExpenses] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [selectedCurrency, setSelectedCurrency] = useState({ code: "JPY", label: "Japanese Yen" });
   const [exchangeRate, setExchangeRate] = useState(null);
-  const [rateLoading, setRateLoading] = useState(false);
-  const [currenciesLoading, setCurrenciesLoading] = useState(true);
   const [currencySearch, setCurrencySearch] = useState("");
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [expenseName, setExpenseName] = useState("");
   const [expenseCost, setExpenseCost] = useState("");
-  const [saving, setSaving] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // derived values
-  const totalSpent = expenses.reduce((sum, e) => sum + (e.cost || 0), 0);
-  const remaining = Math.max(budget - totalSpent, 0);
-  const dailyBudget = remaining > 0 && tripDays > 0 ? Math.round(remaining / tripDays) : 0;
-  const pctUsed = budget > 0 ? Math.min((totalSpent / budget) * 100, 100) : 0;
+  
+  let total = 0;
+
+    for (let i = 0; i < expenses.length; i++) {
+        total += expenses[i].cost || 0;
+    }
+
+  const remaining = Math.max(budget - total, 0);
+  const dailyBudget = tripDays > 0 ? Math.round(remaining / tripDays) : 0;
+  const pctUsed = budget > 0 ? (total / budget) * 100 : 0;
+
+
   const filteredCurrencies = currencies.filter(c =>
     c.label.toLowerCase().includes(currencySearch.toLowerCase()) ||
     c.code.toLowerCase().includes(currencySearch.toLowerCase())
   );
 
-  // load trip budget + dates
+  
   useEffect(() => {
     const user = auth.currentUser;
-    if (!user || !tripId) return;
+
     getDoc(doc(db, "users", user.uid, "trips", String(tripId))).then(snap => {
-      if (!snap.exists()) return;
+      
       const d = snap.data();
-      setBudget(d.budget || 0);
+
+      setBudget(d.budget);
+
+      
+
       if (d.startDate && d.endDate) {
         const days = Math.max(1, Math.round((d.endDate.toDate() - d.startDate.toDate()) / 86400000));
         setTripDays(days);
       }
+
     });
   }, [tripId]);
 
-  // live-sync major expenses from firestore
+  
   useEffect(() => {
     const user = auth.currentUser;
-    if (!user || !tripId) return;
+
     const q = query(collection(db, "users", user.uid, "trips", String(tripId), "majorExpenses"), orderBy("createdAt", "desc"));
     return onSnapshot(q, snap => setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
   }, [tripId]);
 
-  // load currency list on mount
+  
   useEffect(() => {
-    const urls = [
-      "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies.json",
-      "https://latest.currency-api.pages.dev/v1/currencies.json",
-    ];
+    const url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies.json";
     const parse = data => Object.entries(data)
       .filter(([code, label]) => /^[a-z]{3}$/.test(code) && typeof label === "string" && label.length > 2 && code !== "usd")
       .map(([code, label]) => ({ code: code.toUpperCase(), label }))
       .sort((a, b) => a.label.localeCompare(b.label));
 
     (async () => {
-      for (const url of urls) {
-        try { setCurrencies(parse(await fetch(url).then(r => r.json()))); break; } catch (_) {}
-      }
-      setCurrenciesLoading(false);
+      setCurrencies(parse(await fetch(url).then(r => r.json())));
     })();
 
-    Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   }, []);
 
-  // fetch exchange rate, with fallback mirror
+  
   useEffect(() => {
-    const urls = [
-      `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json`,
-      `https://latest.currency-api.pages.dev/v1/currencies/usd.json`,
-    ];
-    setRateLoading(true);
+    const url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
     setExchangeRate(null);
     (async () => {
-      for (const url of urls) {
-        try {
-          const data = await fetch(url).then(r => r.json());
+      const data = await fetch(url).then(r => r.json());
           setExchangeRate(data?.usd?.[selectedCurrency.code.toLowerCase()] ?? null);
-          break;
-        } catch (_) {}
-      }
-      setRateLoading(false);
     })();
   }, [selectedCurrency]);
 
   async function addExpense() {
     const user = auth.currentUser;
-    if (!user || !tripId) return;
-    if (!expenseName.trim()) { Alert.alert("Name required"); return; }
+    
+
     const cost = parseFloat(expenseCost);
-    if (isNaN(cost) || cost <= 0) { Alert.alert("Enter a valid cost"); return; }
-    setSaving(true);
-    try {
-      await addDoc(collection(db, "users", user.uid, "trips", String(tripId), "majorExpenses"), {
+
+    
+    
+    await addDoc(collection(db, "users", user.uid, "trips", String(tripId), "majorExpenses"), {
         name: expenseName.trim(), cost, createdAt: serverTimestamp(),
-      });
-      setExpenseName(""); setExpenseCost(""); setShowAddExpense(false);
-    } catch (err) {
-      Alert.alert("Error", err.message);
-    } finally {
-      setSaving(false);
-    }
+    });
+    setExpenseName(""); setExpenseCost(""); setShowAddExpense(false);
+    
   }
 
   function formatRate(rate) {
@@ -136,14 +123,18 @@ export default function WalletScreen() {
     return rate.toFixed(5);
   }
 
-  // simple single-bar budget chart
+  const PAD_L = 8, PAD_R = 8;
+  
   function BudgetChart() {
-    if (budget === 0) return (
-      <View style={styles.chartWrap}>
-        <Text style={styles.chartTitle}>Budget Overview</Text>
-        <Text style={{ fontSize: 12, color: "#bbb", fontStyle: "italic" }}>Set a budget to see your overview</Text>
-      </View>
-    );
+
+    if (budget <= 0) {
+        return (
+            <View style={styles.chartWrap}>
+            <Text style={styles.chartTitle}>Budget Graph</Text>
+            <Text style={{ color: "#aaa" }}>No budget set</Text>
+            </View>
+        );
+      }
 
     const plotH = CHART_H - 40;
     const magnitude = Math.pow(10, Math.floor(Math.log10(budget)));
@@ -163,8 +154,6 @@ export default function WalletScreen() {
           <Svg width={CHART_W} height={CHART_H} style={{ position: "absolute" }}>
             {ticks.map(t => <Line key={t.key} x1={PAD_L + 36} y1={t.y} x2={CHART_W - PAD_R} y2={t.y} stroke="#f0f0f0" strokeWidth="1" />)}
             <Line x1={barX} y1={toY(budget)} x2={barX} y2={baseY} stroke="#3F63F3" strokeWidth={barW} strokeOpacity="0.18" />
-            <Circle cx={barX} cy={toY(budget)} r="6" fill="#3F63F3" />
-            <Circle cx={barX} cy={toY(budget)} r="3" fill="#fff" />
             <Line x1={PAD_L + 36} y1={baseY} x2={CHART_W - PAD_R} y2={baseY} stroke="#ddd" strokeWidth="1.5" />
           </Svg>
           {ticks.map(t => (
@@ -182,7 +171,7 @@ export default function WalletScreen() {
     );
   }
 
-  const PAD_L = 8, PAD_R = 8;
+  
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -197,7 +186,7 @@ export default function WalletScreen() {
         <View style={{ width: 36 }} />
       </View>
 
-      <Animated.ScrollView style={{ opacity: fadeAnim }} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <Animated.ScrollView style={{ opacity: 1 }} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* reminder cards */}
         <Text style={styles.sectionLabel}>Reminders</Text>
@@ -223,7 +212,7 @@ export default function WalletScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Exchange Rate</Text>
             <Text style={styles.cardBig} numberOfLines={1}>
-              {rateLoading ? "Loading..." : exchangeRate != null ? `1 USD = ${formatRate(exchangeRate)}` : "Unavailable"}
+              {`1 USD = ${formatRate(exchangeRate)}`}
             </Text>
             <Text style={styles.cardSub} numberOfLines={1}>USD → {selectedCurrency.label}</Text>
             <TouchableOpacity style={{ marginTop: 10 }} onPress={() => { setCurrencySearch(""); setShowCurrencyPicker(true); }}>
@@ -233,10 +222,10 @@ export default function WalletScreen() {
 
         </ScrollView>
 
-        {/* budget chart */}
+        
         <BudgetChart />
 
-        {/* major expenses */}
+        
         <View style={styles.majorHeader}>
           <Text style={styles.majorTitle}>Major Expenses</Text>
           <TouchableOpacity style={styles.addBtn} onPress={() => setShowAddExpense(true)}>
@@ -257,7 +246,7 @@ export default function WalletScreen() {
         <View style={{ height: 48 }} />
       </Animated.ScrollView>
 
-      {/* currency picker modal */}
+      
       <Modal visible={showCurrencyPicker} transparent animationType="slide" onRequestClose={() => setShowCurrencyPicker(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowCurrencyPicker(false)} />
         <View style={[styles.sheet, { maxHeight: "75%" }]}>
@@ -267,11 +256,7 @@ export default function WalletScreen() {
             <TextInput style={{ flex: 1, fontSize: 14, color: "#111" }} placeholder="Search currency or code..." placeholderTextColor="#aaa" value={currencySearch} onChangeText={setCurrencySearch} autoCorrect={false} />
           </View>
           <ScrollView showsVerticalScrollIndicator={false}>
-            {currenciesLoading
-              ? <Text style={{ textAlign: "center", color: "#aaa", padding: 24 }}>Loading currencies...</Text>
-              : filteredCurrencies.length === 0
-                ? <Text style={{ textAlign: "center", color: "#aaa", padding: 24 }}>No results found</Text>
-                : filteredCurrencies.map(c => (
+            {filteredCurrencies.map(c => (
                   <TouchableOpacity key={c.code} style={[styles.currencyRow, selectedCurrency.code === c.code && styles.currencyRowActive]} onPress={() => { setSelectedCurrency(c); setShowCurrencyPicker(false); }}>
                     <View>
                       <Text style={[styles.currencyName, selectedCurrency.code === c.code && { color: "#3F63F3", fontWeight: "700" }]}>{c.label}</Text>
@@ -285,7 +270,7 @@ export default function WalletScreen() {
         </View>
       </Modal>
 
-      {/* add expense modal */}
+      
       <Modal visible={showAddExpense} transparent animationType="slide" onRequestClose={() => setShowAddExpense(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <Pressable style={styles.overlay} onPress={() => setShowAddExpense(false)} />
@@ -295,8 +280,8 @@ export default function WalletScreen() {
             <TextInput style={styles.input} placeholder="e.g. Hotel, Flights, Car Rental..." placeholderTextColor="#aaa" value={expenseName} onChangeText={setExpenseName} />
             <Text style={styles.inputLabel}>Cost (USD $)</Text>
             <TextInput style={styles.input} placeholder="0.00" placeholderTextColor="#aaa" keyboardType="numeric" value={expenseCost} onChangeText={setExpenseCost} />
-            <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.6 }]} onPress={addExpense} disabled={saving}>
-              <Text style={styles.saveBtnText}>{saving ? "Saving..." : "Add Expense"}</Text>
+            <TouchableOpacity style={[styles.saveBtn , { opacity: 0.6 }]} onPress={addExpense}>
+              <Text style={styles.saveBtnText}>{"Add Expense"}</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>

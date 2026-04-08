@@ -34,8 +34,6 @@ export default function CreateTrip() {
   const [endDay, setEndDay] = useState("");
   const [endYear, setEndYear] = useState("");
 
-  const [creating, setCreating] = useState(false);
-
   function onBack() {
     router.back();
   }
@@ -52,7 +50,6 @@ export default function CreateTrip() {
 
 
     try {
-      setCreating(true);
 
       const tripTitle = location.trim();
 
@@ -98,9 +95,7 @@ export default function CreateTrip() {
       });
     } catch (error) {
       console.log("Create trip error:", error);
-      Alert.alert("Error", error.message || "Could not create trip.");
-    } finally {
-      setCreating(false);
+      Alert.alert("Error", error.message);
     }
   }
 
@@ -239,13 +234,12 @@ export default function CreateTrip() {
         </View>
 
         <TouchableOpacity
-          style={[styles.createBtn, creating && { opacity: 0.7 }]}
+          style={[styles.createBtn && { opacity: 0.7 }]}
           onPress={handleCreate}
           activeOpacity={0.85}
-          disabled={creating}
         >
           <Text style={styles.createBtnText}>
-            {creating ? "CREATING..." : "CREATE!"}
+            {"CREATE!"}
           </Text>
         </TouchableOpacity>
       </ScrollView>

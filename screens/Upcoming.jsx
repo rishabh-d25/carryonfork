@@ -61,7 +61,7 @@ export default function UpcomingScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(null);
 
-  // Fetch trips from Firebase
+  
   useEffect(() => {
     const fetchTrips = async () => {
       try {
@@ -83,7 +83,7 @@ export default function UpcomingScreen() {
     fetchTrips();
   }, []);
 
-  // Calendar grid
+
   const daysInMonth = useMemo(() => {
     return new Date(year, monthIndex + 1, 0).getDate();
   }, [year, monthIndex]);
@@ -136,7 +136,7 @@ export default function UpcomingScreen() {
     setSelectedDay(null);
   }
 
-  // Trips for selected day
+
   const selectedTrips = useMemo(() => {
     if (!selectedDay) return [];
     return getTripsForDay(selectedDay);
@@ -161,9 +161,9 @@ export default function UpcomingScreen() {
         </View>
       ) : (
         <>
-          {/* ── CALENDAR (top half) ── */}
+          
           <View style={styles.calendarCard}>
-            {/* Month nav */}
+            
             <View style={styles.calendarTopRow}>
               <Pressable onPress={goPrevMonth} style={styles.arrowButton}>
                 <Ionicons name="chevron-back" size={18} color={TEXT} />
@@ -176,14 +176,14 @@ export default function UpcomingScreen() {
               </Pressable>
             </View>
 
-            {/* Day headers */}
+            
             <View style={styles.weekRow}>
               {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
                 <Text key={d} style={styles.weekText}>{d}</Text>
               ))}
             </View>
 
-            {/* Days grid */}
+            
             <View style={styles.daysGrid}>
               {calendarCells.map((cell) => {
                 if (cell.type !== "day") {
@@ -214,7 +214,7 @@ export default function UpcomingScreen() {
                     >
                       {cell.value}
                     </Text>
-                    {/* Dot indicators for multiple trips */}
+                    
                     {tripsOnDay.length > 1 && (
                       <View style={styles.dotsRow}>
                         {tripsOnDay.slice(0, 3).map((t) => (
@@ -228,7 +228,7 @@ export default function UpcomingScreen() {
             </View>
           </View>
 
-          {/* ── DETAILS (bottom half) ── */}
+          
           <ScrollView style={styles.detailsArea} contentContainerStyle={styles.detailsContent}>
             {!selectedDay && (
               <Text style={styles.placeholderText}>Tap a day to see trip details</Text>
@@ -240,13 +240,13 @@ export default function UpcomingScreen() {
 
             {selectedTrips.map((trip) => (
               <View key={trip.id} style={[styles.tripCard, { borderLeftColor: trip.color }]}>
-                {/* Trip title row */}
+                
                 <View style={styles.tripTitleRow}>
                   <View style={[styles.colorDot, { backgroundColor: trip.color }]} />
                   <Text style={styles.tripLocation}>{trip.location}</Text>
                 </View>
 
-                {/* Trip details */}
+                
                 <View style={styles.tripDetailsGrid}>
                   <View style={styles.tripDetailItem}>
                     <Text style={styles.tripDetailLabel}>Dates</Text>
@@ -275,7 +275,7 @@ export default function UpcomingScreen() {
                   </View>
                 </View>
 
-                {/* Action icons */}
+                
                 <View style={styles.tripActions}>
                   {trip.withGroup && (
                     <TouchableOpacity
@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
     backgroundColor: BG,
   },
 
-  // Header
+
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Calendar
+ 
   calendarCard: {
     backgroundColor: "#fff",
     marginHorizontal: 16,
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 
-  // Details
+
   detailsArea: {
     flex: 1,
     marginHorizontal: 16,
