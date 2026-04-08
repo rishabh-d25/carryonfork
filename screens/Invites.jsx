@@ -39,15 +39,15 @@ export default function InvitesScreen() {
   const [invites, setInvites] = useState([]);
   const [processing, setProcessing] = useState(null);
 
-  // Real-time invites listener
+  
   useEffect(() => {
 
     const invitesRef = collection(db, "users", user.uid, "invites");
-    const unsubscribe = onSnapshot(invitesRef, async (snapshot) => {
+    const stopListen = onSnapshot(invitesRef, async (snapshot) => {
       const raw = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      // For each invite, fetch the trip details from the sender's trips
-      const enriched = await Promise.all(
+      
+      const tripInfo = await Promise.all(
         raw.map(async (invite) => {
           try {
             const tripDoc = await getDoc(
@@ -61,17 +61,17 @@ export default function InvitesScreen() {
         })
       );
 
-      setInvites(enriched);
+      setInvites(tripInfo);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => stopListen();
   }, []);
 
   const handleAccept = async (invite) => {
     setProcessing(invite.id);
     try {
-      // 1. Copy the trip to the current user's trips collection
+      
       if (invite.tripData) {
         await addDoc(collection(db, "users", currentUser.uid, "trips"), {
           ...invite.tripData,
@@ -79,15 +79,15 @@ export default function InvitesScreen() {
         });
       }
 
-      // 2. Add current user's UID to the groupchat members array
+      
       await updateDoc(doc(db, "groupchats", invite.chatId), {
         members: arrayUnion(currentUser.uid),
       });
 
-      // 3. Delete the invite
+      
       await deleteDoc(doc(db, "users", currentUser.uid, "invites", invite.id));
 
-      // 4. Navigate to the groupchat
+      
       router.push({ pathname: "/chat", params: { chatId: invite.chatId } });
     } catch (e) {
       console.error("Error accepting invite:", e);
