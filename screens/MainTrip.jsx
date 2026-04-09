@@ -120,11 +120,13 @@ export default function MainTrip() {
       params: { tripId },
     });
 
-  const onJournal = () =>
+  const onJournal = () => {
+    console.log(journalId);
     router.push({
       pathname: "/journal",
-      params: { journalId },
+      params: { journalId: tripId },
     });
+  };
 
   const onItinerary = () =>
     router.push({

@@ -231,18 +231,15 @@ export default function CreateTrip() {
               onChangeText={setEndYear}
             />
           </View>
+        </View>
 
-
-          <TouchableOpacity
-          style={[styles.createBtn && { opacity: 0.7 }]}
+        <TouchableOpacity
+          style={styles.createBtn}
           onPress={handleCreate}
           activeOpacity={0.85}
         >
-          <Text style={styles.createBtnText}>
-            {"CREATE!"}
-          </Text>
+          <Text style={styles.createBtnText}>CREATE!</Text>
         </TouchableOpacity>
-        </View>
 
         
       </ScrollView>

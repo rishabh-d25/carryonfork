@@ -12,20 +12,20 @@ import {
 import { auth, db } from "../firebaseConfig";
 
 async function compressToBase64(uri) {
-  const result = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 800 } }], {
-    compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true,
-  });
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: 800 } }],
+    { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+  );
   return result.base64;
 }
 
 function timeAgo(timestamp) {
-  if (!timestamp?.toDate) return "missing";
-
-
-  const difference = Date.now() - timestamp.toDate();
-  const min = Math.floor(difference / 60000)
-  const hr = Math.floor(difference / 3600000)
-  const day = Math.floor(difference / 86400000);
+  if (!timestamp?.toDate) return "Just now";
+  const ms = Date.now() - timestamp.toDate().getTime();
+  const min = Math.floor(ms / 60000);
+  const hr = Math.floor(ms / 3600000);
+  const day = Math.floor(ms / 86400000);
   if (min < 1) return "Just now";
   if (min < 60) return `${min} min ago`;
   if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
@@ -35,85 +35,97 @@ function timeAgo(timestamp) {
 
 export default function JournalScreen() {
   const router = useRouter();
-  const { passedjournalId} = useLocalSearchParams();
+  const { journalId } = useLocalSearchParams();
 
-  const [journalId] = useState(passedjournalId);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [pendingImages, setPendingImages] = useState([]);
-
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const user = auth.currentUser;
-    const q = query(collection(db, "users", user.uid, "journals", journalId, "messages"), orderBy("createdAt", "desc"));
+    if (!user || !journalId) return;
+    const q = query(
+      collection(db, "users", user.uid, "journals", journalId, "messages"),
+      orderBy("createdAt", "desc")
+    );
     return onSnapshot(q, snap => setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
   }, [journalId]);
 
   async function pickImages(fromCamera) {
-    let perm;
+    const permission = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    if (fromCamera) {
-      perm = await ImagePicker.requestCameraPermissionsAsync();
-    } else {
-      perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    }
-
-    if (perm.status !== "granted") {
+    if (permission.status !== "granted") {
       Alert.alert("Permission denied", "Allow access in Settings.");
       return;
     }
 
-
-    let result;
-
-    if (fromCamera) {
-      result = await ImagePicker.launchCameraAsync({ quality: 1 })
-    } else {
-      result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: 4, quality: 1 })
-    }
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 1 })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: true,
+          selectionLimit: 4,
+          quality: 1,
+        });
 
     if (result.canceled) return;
 
-    const slots = 4 - pendingImages.length;
-
-    if (slots <= 0) {
-  
-      Alert.alert("Limit reached", "You can attach up to 4 images."); return; 
+    const availableSlots = 4 - pendingImages.length;
+    if (availableSlots <= 0) {
+      Alert.alert("Limit reached", "You can attach up to 4 images.");
+      return;
     }
 
-    if (result.assets.length > slots) {
-       Alert.alert(
-        "Too many images",
-        "You can only attach up to 4 images",
-        "Extra images will be ignored"
-  );
-}
-
-    const prepared = await Promise.all(result.assets.slice(0, slots).map(async a => ({ uri: a.uri, base64: await compressToBase64(a.uri) })));
-
+    const prepared = await Promise.all(
+      result.assets.slice(0, availableSlots).map(async asset => ({
+        uri: asset.uri,
+        base64: await compressToBase64(asset.uri),
+      }))
+    );
     setPendingImages(prev => [...prev, ...prepared]);
   }
 
   function showImagePicker() {
     if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions({ options: ["Cancel", "Take Photo", "Choose from Library"], cancelButtonIndex: 0 }, i => {
-        if (i === 1) pickImages(true);
-        if (i === 2) pickImages(false);
-      });
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ["Cancel", "Take Photo", "Choose from Library"], cancelButtonIndex: 0 },
+        i => { if (i === 1) pickImages(true); if (i === 2) pickImages(false); }
+      );
     } else {
-      Alert.alert("Add Image", "", [{ text: "Take Photo", onPress: () => pickImages(true) }, { text: "Choose from Library", onPress: () => pickImages(false) }, { text: "Cancel", style: "cancel" }]);
+      Alert.alert("Add Image", "", [
+        { text: "Take Photo", onPress: () => pickImages(true) },
+        { text: "Choose from Library", onPress: () => pickImages(false) },
+        { text: "Cancel", style: "cancel" },
+      ]);
     }
   }
 
   async function submitEntry() {
     const user = auth.currentUser;
-    await addDoc(collection(db, "users", user.uid, "journals", journalId, "messages"), {
-        text: text.trim(), images: pendingImages.map(i => i.base64), createdAt: serverTimestamp(),
+    if (!user || !journalId) return;
+    if (!text.trim() && pendingImages.length === 0) return;
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, "users", user.uid, "journals", journalId, "messages"), {
+        text: text.trim(),
+        images: pendingImages.map(img => img.base64),
+        createdAt: serverTimestamp(),
       });
-      setText(""); setPendingImages([]);
+      setText("");
+      setPendingImages([]);
+    } catch (err) {
+      Alert.alert("Error", err?.message || "Could not save entry.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  
+  const canSubmit = !submitting && (text.trim().length > 0 || pendingImages.length > 0);
+
   return (
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle="dark-content" />
@@ -159,11 +171,20 @@ export default function JournalScreen() {
         <Text style={s.composerLabel}>Add Journal Entry</Text>
 
         {pendingImages.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginBottom: 10 }}
+            contentContainerStyle={{ gap: 8, paddingRight: 8 }}
+          >
             {pendingImages.map((img, i) => (
               <View key={i} style={{ position: "relative" }}>
                 <Image source={{ uri: img.uri }} style={s.previewThumb} resizeMode="cover" />
-                <TouchableOpacity style={s.removeBtn} onPress={() => setPendingImages(prev => prev.filter((_, j) => j !== i))} hitSlop={4}>
+                <TouchableOpacity
+                  style={s.removeBtn}
+                  onPress={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}
+                  hitSlop={4}
+                >
                   <Ionicons name="close-circle" size={20} color="#fff" />
                 </TouchableOpacity>
               </View>
@@ -177,11 +198,26 @@ export default function JournalScreen() {
         )}
 
         <View style={s.inputRow}>
-          <TouchableOpacity style={s.cameraBtn} onPress={showImagePicker} disabled={pendingImages.length >= 4}>
+          <TouchableOpacity
+            style={s.cameraBtn}
+            onPress={showImagePicker}
+            disabled={pendingImages.length >= 4}
+          >
             <Ionicons name="camera" size={22} color={pendingImages.length >= 4 ? "#ccc" : "#4F6BFF"} />
           </TouchableOpacity>
-          <TextInput style={s.textInput} placeholder="Write the entry here" placeholderTextColor="#aaa" value={text} onChangeText={setText} multiline />
-          <TouchableOpacity style={[s.submitBtn]} onPress={submitEntry}>
+          <TextInput
+            style={s.textInput}
+            placeholder="Write the entry here"
+            placeholderTextColor="#aaa"
+            value={text}
+            onChangeText={setText}
+            multiline
+          />
+          <TouchableOpacity
+            style={[s.submitBtn, !canSubmit && s.submitBtnDisabled]}
+            onPress={submitEntry}
+            disabled={!canSubmit}
+          >
             <Ionicons name="arrow-up" size={20} color="#fff" />
           </TouchableOpacity>
         </View>

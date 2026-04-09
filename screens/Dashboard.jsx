@@ -151,6 +151,7 @@ export default function Dashboard() {
   const onInvitesPress = () => router.push("/invites");
   
   const onSettingsPress = () => {
+    console.log("setting")
     if (user){
       router.push({
       pathname: "/settings",
