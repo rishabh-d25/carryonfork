@@ -1,9 +1,10 @@
-// screens/Auth.jsx
+// screens/Signup.jsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -20,14 +21,25 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
+import {
+  useFonts,
+  CinzelDecorative_700Bold,
+} from "@expo-google-fonts/cinzel-decorative";
+
 const BLUE = "#3F63F3";
 
-export default function Auth() {
+export default function Signup() {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+
+  const [fontsLoaded] = useFonts({
+    CinzelDecorative_700Bold,
+  });
+
+  if (!fontsLoaded) return null;
 
   const onSignUpPress = async () => {
     try {
@@ -52,7 +64,7 @@ export default function Auth() {
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      <Pressable onPress={onBack} style={styles.iconButton} hitSlop={8}>
+      <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
         <Ionicons name="chevron-back" size={24} color="#111827" />
       </Pressable>
 
@@ -62,7 +74,12 @@ export default function Auth() {
       >
         <View style={styles.container}>
           <View style={styles.brandWrap}>
-            <Text style={styles.brand}>CARRY ON</Text>
+            <Image
+              source={require("../assets/images/carryonLogo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.brand}>CarryOn</Text>
             <Text style={styles.tagline}>PLAN. PACK. GO.</Text>
           </View>
 
@@ -99,7 +116,7 @@ export default function Auth() {
 
             <View style={styles.btnRow}>
               <TouchableOpacity onPress={onSignUpPress} style={styles.btn} activeOpacity={0.9}>
-                <Text style={styles.btnText}>SIGN UP</Text>
+                <Text style={styles.btnText}>Sign Up</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -112,11 +129,26 @@ export default function Auth() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#DCE6FF", // 👈 match app background
+    backgroundColor: "#DCE6FF",
   },
 
   flex: {
     flex: 1,
+  },
+
+  backButton: {
+    position: "absolute",
+    top: 58,
+    left: 20,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#C9D7FF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
   },
 
   container: {
@@ -124,55 +156,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#C9D7FF", // 👈 match other screens
-    borderWidth: 1,
-    borderColor: "#B4C6FF",
+    transform: [{ translateY: -30 }],
   },
 
   brandWrap: {
     alignItems: "center",
-    marginBottom: 18,
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  logo: {
+    width: 180,
+    height: 180,
+    marginBottom: 2,
   },
 
   brand: {
-    fontSize: 40,
-    letterSpacing: 2,
-    color: "#3F63F3",
-    fontWeight: "700",
+    fontSize: 36,
+    letterSpacing: 3,
+    color: BLUE,
+    textAlign: "center",
+    fontFamily: "CinzelDecorative_700Bold",
   },
 
   tagline: {
-    marginTop: 6,
+    marginTop: 4,
     fontSize: 12,
     letterSpacing: 2,
-    color: "#3F63F3",
+    color: BLUE,
     fontWeight: "500",
+    textAlign: "center",
   },
 
   card: {
+    marginTop: 8,
     width: "100%",
     maxWidth: 360,
-    backgroundColor: "#D4DEFF", // 👈 key change
+    backgroundColor: "#D4DEFF",
     borderRadius: 16,
     paddingHorizontal: 18,
     paddingVertical: 18,
     borderWidth: 1,
     borderColor: "#B4C6FF",
-
-    // 👇 subtle depth (optional but makes it look MUCH better)
-    shadowColor: "#3F63F3",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    alignItems: "center",
   },
 
   h1: {
@@ -199,7 +225,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 14,
     color: "#1F2937",
-    backgroundColor: "#EEF2FF", // 👈 soft fill
+    backgroundColor: "#EEF2FF",
     marginBottom: 10,
   },
 
@@ -208,13 +234,14 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 6,
     justifyContent: "center",
+    width: "100%",
   },
 
   btn: {
     flex: 1,
     height: 42,
     borderRadius: 10,
-    backgroundColor: "#5A75F5", // 👈 consistent button color
+    backgroundColor: "#5A75F5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -235,7 +262,7 @@ const styles = StyleSheet.create({
   },
 
   link: {
-    color: "#3F63F3",
+    color: BLUE,
     fontWeight: "700",
   },
 });

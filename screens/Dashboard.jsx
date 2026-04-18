@@ -1,4 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import {
+  useFonts,
+  CinzelDecorative_700Bold,
+} from "@expo-google-fonts/cinzel-decorative";
 import { useFocusEffect, useRouter } from "expo-router";
 import { getAuth } from "firebase/auth";
 import { collection, getDocs } from "firebase/firestore";
@@ -114,6 +118,10 @@ export default function Dashboard() {
   const router = useRouter();
   const [trips, setTrips] = useState([]);
   const [loadingTrips, setLoadingTrips] = useState(true);
+
+  const [fontsLoaded] = useFonts({
+    CinzelDecorative_700Bold,
+  });
 
   const MAIN_TRIP_IMAGE = require("../assets/images/main-trip.jpg");
 
@@ -238,6 +246,8 @@ export default function Dashboard() {
 
   const onBackPress = () => router.back();
 
+  if (!fontsLoaded) return null;
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={BG} />
@@ -257,7 +267,7 @@ export default function Dashboard() {
         </View>
 
         <View style={styles.titleWrap}>
-          <Text style={styles.title}>CARRY ON</Text>
+          <Text style={styles.title}>CarryOn</Text>
           <Text style={styles.subtitle}>PLAN. PACK. GO.</Text>
         </View>
 
@@ -536,9 +546,10 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 38,
-    letterSpacing: 1.5,
+    letterSpacing: 3,
     color: "#3F63F3",
-    fontWeight: "700",
+    textAlign: "center",
+    fontFamily: "CinzelDecorative_700Bold",
   },
   subtitle: {
     marginTop: 6,

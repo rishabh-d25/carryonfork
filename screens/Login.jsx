@@ -11,36 +11,42 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from "react-native";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebaseConfig";
 
-
+import {
+  useFonts,
+  CinzelDecorative_700Bold,
+} from "@expo-google-fonts/cinzel-decorative";
 
 export default function Auth() {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
-   
   const [password, setPassword] = useState("");
 
+  const [fontsLoaded] = useFonts({
+    CinzelDecorative_700Bold,
+  });
 
-const onLogIn = async () => {
-  try {
-    await signInWithEmailAndPassword(auth, email.trim(), password);
-    console.log("Logged in!");
-  } catch (e) {
-    console.log("Log in error:", e.message);
-  }
+  if (!fontsLoaded) return null;
 
-  router.push("/dashboard")
-};
+  const onLogIn = async () => {
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      console.log("Logged in!");
+      router.push("/dashboard");
+    } catch (e) {
+      console.log("Log in error:", e.message);
+    }
+  };
 
-const onSignUp = async () => {
-  router.push("/signup")
-};
-
+  const onSignUp = async () => {
+    router.push("/signup");
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -51,13 +57,16 @@ const onSignUp = async () => {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.container}>
-          {/* Logo / Title */}
           <View style={styles.brandWrap}>
-            <Text style={styles.brand}>CARRY ON</Text>
+            <Image
+              source={require("../assets/images/carryonLogo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.brand}>CarryOn</Text>
             <Text style={styles.tagline}>PLAN. PACK. GO.</Text>
           </View>
 
-          {/* Card */}
           <View style={styles.card}>
             <Text style={styles.h1}>Welcome!</Text>
             <Text style={styles.sub}>We can't wait to help plan your travels!</Text>
@@ -82,7 +91,6 @@ const onSignUp = async () => {
             />
 
             <View style={styles.btnRow}>
-
               <TouchableOpacity onPress={onLogIn} style={styles.btn} activeOpacity={0.9}>
                 <Text style={styles.btnText}>Log In</Text>
               </TouchableOpacity>
@@ -103,7 +111,7 @@ const BLUE = "#3F63F3";
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#DCE6FF", // 👈 match app background
+    backgroundColor: "#DCE6FF",
   },
 
   flex: {
@@ -115,37 +123,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     alignItems: "center",
     justifyContent: "center",
+    transform: [{ translateY: -30 }],
   },
 
   brandWrap: {
     alignItems: "center",
-    marginBottom: 18,
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  logo: {
+    width: 180,
+    height: 180,
+    marginBottom: 2,
   },
 
   brand: {
-    fontSize: 40,
-    letterSpacing: 2,
-    color: "#3F63F3",
-    fontWeight: "700",
+    fontSize: 36,
+    letterSpacing: 3,
+    color: BLUE,
+    textAlign: "center",
+    fontFamily: "CinzelDecorative_700Bold",
   },
 
   tagline: {
-    marginTop: 6,
+    marginTop: 4,
     fontSize: 12,
     letterSpacing: 2,
-    color: "#3F63F3",
+    color: BLUE,
     fontWeight: "500",
+    textAlign: "center",
   },
 
   card: {
+    marginTop: 8,
     width: "100%",
     maxWidth: 360,
-    backgroundColor: "#D4DEFF", // 👈 same card color as other screens
+    backgroundColor: "#D4DEFF",
     borderRadius: 16,
     paddingHorizontal: 18,
     paddingVertical: 18,
     borderWidth: 1,
     borderColor: "#B4C6FF",
+    alignItems: "center",
   },
 
   h1: {
@@ -172,7 +192,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 14,
     color: "#1F2937",
-    backgroundColor: "#EEF2FF", // 👈 soft input fill
+    backgroundColor: "#EEF2FF",
     marginBottom: 10,
   },
 
@@ -181,13 +201,14 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 6,
     justifyContent: "center",
+    width: "100%",
   },
 
   btn: {
     flex: 1,
     height: 42,
     borderRadius: 10,
-    backgroundColor: "#5A75F5", // 👈 consistent button color
+    backgroundColor: "#5A75F5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -197,18 +218,5 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     fontSize: 13,
-  },
-
-  legal: {
-    marginTop: 14,
-    textAlign: "center",
-    fontSize: 10,
-    lineHeight: 14,
-    color: "#6B7280",
-  },
-
-  link: {
-    color: "#3F63F3",
-    fontWeight: "700",
   },
 });
