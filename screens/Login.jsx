@@ -101,8 +101,14 @@ const onSignUp = async () => {
 const BLUE = "#3F63F3";
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#ffffff" },
-  flex: { flex: 1 },
+  safe: {
+    flex: 1,
+    backgroundColor: "#DCE6FF", // 👈 match app background
+  },
+
+  flex: {
+    flex: 1,
+  },
 
   container: {
     flex: 1,
@@ -115,88 +121,94 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 18,
   },
+
   brand: {
     fontSize: 40,
     letterSpacing: 2,
-    color: BLUE,
-    fontWeight: "600",
+    color: "#3F63F3",
+    fontWeight: "700",
   },
+
   tagline: {
     marginTop: 6,
     fontSize: 12,
     letterSpacing: 2,
-    color: BLUE,
+    color: "#3F63F3",
     fontWeight: "500",
   },
 
   card: {
     width: "100%",
     maxWidth: 360,
-    backgroundColor: "#ffffff",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    backgroundColor: "#D4DEFF", // 👈 same card color as other screens
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
     borderWidth: 1,
-    borderColor: "rgba(17,24,39,0.08)",
+    borderColor: "#B4C6FF",
   },
 
   h1: {
     textAlign: "center",
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111827",
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#1F2937",
   },
+
   sub: {
     marginTop: 6,
-    marginBottom: 12,
+    marginBottom: 14,
     textAlign: "center",
-    fontSize: 12,
-    color: "rgba(17,24,39,0.6)",
+    fontSize: 13,
+    color: "#4B5563",
   },
 
   input: {
     width: "100%",
-    height: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(17,24,39,0.12)",
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#9FB2FF",
     paddingHorizontal: 12,
-    fontSize: 13,
-    color: "#111827",
-    backgroundColor: "#fff",
+    fontSize: 14,
+    color: "#1F2937",
+    backgroundColor: "#EEF2FF", // 👈 soft input fill
     marginBottom: 10,
   },
 
   btnRow: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 4,
+    marginTop: 6,
     justifyContent: "center",
   },
+
   btn: {
     flex: 1,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: BLUE,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: "#5A75F5", // 👈 consistent button color
     alignItems: "center",
     justifyContent: "center",
   },
+
   btnText: {
     color: "#ffffff",
-    fontWeight: "800",
-    letterSpacing: 1,
-    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    fontSize: 13,
   },
 
   legal: {
-    marginTop: 12,
+    marginTop: 14,
     textAlign: "center",
     fontSize: 10,
     lineHeight: 14,
-    color: "rgba(17,24,39,0.55)",
+    color: "#6B7280",
   },
+
   link: {
-    color: "rgba(17,24,39,0.8)",
+    color: "#3F63F3",
     fontWeight: "700",
   },
 });

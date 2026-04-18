@@ -6,31 +6,31 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
-    Alert,
-    Dimensions,
-    Image,
-    Modal,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Alert,
+  Dimensions,
+  Image,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import {
-    deleteTripItem,
-    formatTime,
-    getTripItemById,
-    persistTripAttachmentLocally,
-    upsertTripItem,
+  deleteTripItem,
+  formatTime,
+  getTripItemById,
+  persistTripAttachmentLocally,
+  upsertTripItem,
 } from "../utils/tripStorage";
 
-const BLUE = "#4967E8";
-const BG = "#F7F7F7";
-const BORDER = "#DADADA";
-const TEXT = "#1F1F1F";
+const BLUE = "#3F63F3";
+const BG = "#DCE6FF";
+const BORDER = "#B4C6FF";
+const TEXT = "#1F2937";
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -52,7 +52,7 @@ function buildDateFromItem(item) {
 }
 
 function getAttachmentDisplayUri(attachment) {
-  return attachment?.uri || "";
+  return attachment?.downloadURL || attachment?.uri || "";
 }
 
 function isLocalPersistedAttachment(attachment) {
@@ -62,8 +62,18 @@ function isLocalPersistedAttachment(attachment) {
 export default function TripItemDetails() {
   const router = useRouter();
   const params = useLocalSearchParams();
+
   const tripId = params.tripId ? String(params.tripId) : null;
   const itemId = params.itemId ? String(params.itemId) : null;
+
+  const sourceTripId = params.sourceTripId
+    ? String(params.sourceTripId)
+    : tripId;
+
+  const sourceTripOwnerId = params.sourceTripOwnerId
+    ? String(params.sourceTripOwnerId)
+    : null;
+
   const fullScreenScrollRef = useRef(null);
 
   const [item, setItem] = useState(null);
@@ -76,10 +86,14 @@ export default function TripItemDetails() {
   const [viewerIndex, setViewerIndex] = useState(0);
 
   const loadItem = useCallback(async () => {
-    if (!tripId || !itemId) return;
+    if (!sourceTripId || !itemId) return;
 
     try {
-      const found = await getTripItemById(tripId, itemId);
+      const found = await getTripItemById(
+        sourceTripId,
+        itemId,
+        sourceTripOwnerId
+      );
 
       if (!found) {
         setItem(null);
@@ -107,7 +121,7 @@ export default function TripItemDetails() {
       setItem(null);
       setDraft(null);
     }
-  }, [tripId, itemId]);
+  }, [sourceTripId, itemId, sourceTripOwnerId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -168,124 +182,133 @@ export default function TripItemDetails() {
     setShowTimePicker(false);
   }
 
-async function persistAttachmentsLocally(attachmentsToPersist) {
-  const nextAttachments = [];
-  const failedAttachments = [];
+  async function persistAttachmentsLocally(attachmentsToPersist) {
+    const nextAttachments = [];
+    const failedAttachments = [];
 
-  for (const attachment of attachmentsToPersist || []) {
-    try {
-      if (isLocalPersistedAttachment(attachment)) {
+    for (const attachment of attachmentsToPersist || []) {
+      try {
+        if (isLocalPersistedAttachment(attachment)) {
+          nextAttachments.push({
+            ...attachment,
+            id: String(attachment.id),
+          });
+          continue;
+        }
+
+        if (!attachment?.uri) {
+          failedAttachments.push(attachment);
+          continue;
+        }
+
+        const savedAttachment = await persistTripAttachmentLocally(
+          sourceTripId,
+          itemId,
+          attachment,
+          sourceTripOwnerId
+        );
+
+        nextAttachments.push({
+          ...savedAttachment,
+          id: String(savedAttachment.id || attachment.id),
+        });
+
+        if (!savedAttachment?.uri && !savedAttachment?.downloadURL) {
+          failedAttachments.push(attachment);
+        }
+      } catch (error) {
+        console.log("persistAttachmentsLocally failed:", error);
+
         nextAttachments.push({
           ...attachment,
           id: String(attachment.id),
         });
-        continue;
-      }
 
-      if (!attachment?.uri) {
-        failedAttachments.push(attachment);
-        continue;
-      }
-
-      const savedAttachment = await persistTripAttachmentLocally(tripId, itemId, attachment);
-
-      nextAttachments.push({
-        ...savedAttachment,
-        id: String(savedAttachment.id || attachment.id),
-      });
-
-      if (!savedAttachment?.uri) {
         failedAttachments.push(attachment);
       }
-    } catch (error) {
-      console.log("persistAttachmentsLocally failed:", error);
-
-      // keep the original attachment so it doesn't vanish
-      nextAttachments.push({
-        ...attachment,
-        id: String(attachment.id),
-      });
-
-      failedAttachments.push(attachment);
-    }
-  }
-
-  return {
-    attachments: nextAttachments,
-    failedAttachments,
-  };
-}
-async function saveDraft() {
-  if (!draft || !tripId || !itemId || saving) return;
-
-  if (!draft.description?.trim()) {
-    Alert.alert("Missing description", "Description cannot be empty.");
-    return;
-  }
-
-  try {
-    setSaving(true);
-
-    const safeDate = draft.dateObject || buildDateFromItem(draft);
-
-    let finalAttachments = Array.isArray(draft.attachments) ? [...draft.attachments] : [];
-
-    if (editingField === "attachments") {
-      const result = await persistAttachmentsLocally(finalAttachments);
-      finalAttachments = result.attachments;
     }
 
-    const updatedItem = {
-      ...draft,
-      id: itemId,
-      month: MONTHS[safeDate.getMonth()],
-      year: safeDate.getFullYear(),
-      day: safeDate.getDate(),
-      hour24: safeDate.getHours(),
-      minute: safeDate.getMinutes(),
-      dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
-      timeLabel: formatTime(safeDate),
-      description: (draft.description || "").trim(),
-      location: (draft.location || "").trim(),
-      reservationNumber: (draft.reservationNumber || "").trim(),
-      attachments: finalAttachments,
+    return {
+      attachments: nextAttachments,
+      failedAttachments,
     };
+  }
 
-    delete updatedItem.dateObject;
+  async function saveDraft() {
+    if (!draft || !sourceTripId || !itemId || saving) return;
 
-    await upsertTripItem(tripId, updatedItem);
+    if (!draft.description?.trim()) {
+      Alert.alert("Missing description", "Description cannot be empty.");
+      return;
+    }
 
-    const freshItem = await getTripItemById(tripId, itemId);
-    const safeFreshAttachments = Array.isArray(freshItem?.attachments) ? freshItem.attachments : [];
+    try {
+      setSaving(true);
 
-    if (freshItem) {
-      const normalized = {
-        ...freshItem,
+      const safeDate = draft.dateObject || buildDateFromItem(draft);
+
+      let finalAttachments = Array.isArray(draft.attachments) ? [...draft.attachments] : [];
+
+      if (editingField === "attachments") {
+        const result = await persistAttachmentsLocally(finalAttachments);
+        finalAttachments = result.attachments;
+      }
+
+      const updatedItem = {
+        ...draft,
         id: itemId,
-        attachments: safeFreshAttachments,
+        month: MONTHS[safeDate.getMonth()],
+        year: safeDate.getFullYear(),
+        day: safeDate.getDate(),
+        hour24: safeDate.getHours(),
+        minute: safeDate.getMinutes(),
+        dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
+        timeLabel: formatTime(safeDate),
+        description: (draft.description || "").trim(),
+        location: (draft.location || "").trim(),
+        reservationNumber: (draft.reservationNumber || "").trim(),
+        attachments: finalAttachments,
       };
 
-      setItem(normalized);
-      setDraft({
-        ...normalized,
-        attachments: safeFreshAttachments,
-        dateObject: buildDateFromItem(normalized),
-      });
-    }
+      delete updatedItem.dateObject;
 
-    setEditingField(null);
-    setShowDatePicker(false);
-    setShowTimePicker(false);
-  } catch (error) {
-    console.log("saveDraft error:", error);
-    Alert.alert("Error", error.message || "Could not save changes.");
-  } finally {
-    setSaving(false);
+      await upsertTripItem(sourceTripId, updatedItem, sourceTripOwnerId);
+
+      const freshItem = await getTripItemById(
+        sourceTripId,
+        itemId,
+        sourceTripOwnerId
+      );
+      const safeFreshAttachments = Array.isArray(freshItem?.attachments) ? freshItem.attachments : [];
+
+      if (freshItem) {
+        const normalized = {
+          ...freshItem,
+          id: itemId,
+          attachments: safeFreshAttachments,
+        };
+
+        setItem(normalized);
+        setDraft({
+          ...normalized,
+          attachments: safeFreshAttachments,
+          dateObject: buildDateFromItem(normalized),
+        });
+      }
+
+      setEditingField(null);
+      setShowDatePicker(false);
+      setShowTimePicker(false);
+    } catch (error) {
+      console.log("saveDraft error:", error);
+      Alert.alert("Error", error.message || "Could not save changes.");
+    } finally {
+      setSaving(false);
+    }
   }
-}
 
   async function onDelete() {
-    if (!tripId || !itemId) return;
+    if (!sourceTripId || !itemId) return;
 
     Alert.alert("Delete item", "Are you sure you want to delete this item?", [
       { text: "Cancel", style: "cancel" },
@@ -294,10 +317,14 @@ async function saveDraft() {
         style: "destructive",
         onPress: async () => {
           try {
-            await deleteTripItem(tripId, itemId);
+            await deleteTripItem(sourceTripId, itemId, sourceTripOwnerId);
             router.replace({
               pathname: "/tripitinerary",
-              params: { tripId },
+              params: {
+                tripId,
+                sourceTripId,
+                sourceTripOwnerId,
+              },
             });
           } catch (error) {
             console.log("Delete item error:", error);
@@ -308,157 +335,164 @@ async function saveDraft() {
     ]);
   }
 
-async function addPhotoFromLibrary() {
-  try {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      return;
+  async function addPhotoFromLibrary() {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+      });
+
+      if (result.canceled || !draft) return;
+
+      const newItems = (result.assets || []).map((asset) => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: "image",
+        uri: asset.uri,
+        name: asset.fileName || "Photo",
+        mimeType: asset.mimeType || "image/jpeg",
+        isLocalPersisted: false,
+      }));
+
+      const nextAttachments = [...(draft.attachments || []), ...newItems];
+
+      setDraft((prev) => ({
+        ...prev,
+        attachments: nextAttachments,
+      }));
+
+      await saveAttachmentsImmediately(nextAttachments);
+    } catch (error) {
+      console.log("addPhotoFromLibrary error:", error);
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: false,
-      allowsMultipleSelection: true,
-    });
-
-    if (result.canceled || !draft) return;
-
-    const newItems = (result.assets || []).map((asset) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      type: "image",
-      uri: asset.uri,
-      name: asset.fileName || "Photo",
-      mimeType: asset.mimeType || "image/jpeg",
-      isLocalPersisted: false,
-    }));
-
-    const nextAttachments = [...(draft.attachments || []), ...newItems];
-
-    setDraft((prev) => ({
-      ...prev,
-      attachments: nextAttachments,
-    }));
-
-    await saveAttachmentsImmediately(nextAttachments);
-  } catch (error) {
-    console.log("addPhotoFromLibrary error:", error);
   }
-}
 
-async function takePhoto() {
-  try {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      return;
+  async function takePhoto() {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: false,
+      });
+
+      if (result.canceled || !draft) return;
+
+      const asset = result.assets?.[0];
+      if (!asset) return;
+
+      const newItem = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: "image",
+        uri: asset.uri,
+        name: asset.fileName || "Camera Photo",
+        mimeType: asset.mimeType || "image/jpeg",
+        isLocalPersisted: false,
+      };
+
+      const nextAttachments = [...(draft.attachments || []), newItem];
+
+      setDraft((prev) => ({
+        ...prev,
+        attachments: nextAttachments,
+      }));
+
+      await saveAttachmentsImmediately(nextAttachments);
+    } catch (error) {
+      console.log("takePhoto error:", error);
     }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: false,
-    });
-
-    if (result.canceled || !draft) return;
-
-    const asset = result.assets?.[0];
-    if (!asset) return;
-
-    const newItem = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      type: "image",
-      uri: asset.uri,
-      name: asset.fileName || "Camera Photo",
-      mimeType: asset.mimeType || "image/jpeg",
-      isLocalPersisted: false,
-    };
-
-    const nextAttachments = [...(draft.attachments || []), newItem];
-
-    setDraft((prev) => ({
-      ...prev,
-      attachments: nextAttachments,
-    }));
-
-    await saveAttachmentsImmediately(nextAttachments);
-  } catch (error) {
-    console.log("takePhoto error:", error);
   }
-}
 
-async function addDocument() {
-  try {
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
+  async function addDocument() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
 
-    if (result.canceled || !draft) return;
+      if (result.canceled || !draft) return;
 
-    const file = result.assets?.[0];
-    if (!file) return;
+      const file = result.assets?.[0];
+      if (!file) return;
 
-    const newDoc = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      type: "document",
-      uri: file.uri,
-      name: file.name || "Document",
-      mimeType: file.mimeType || "application/octet-stream",
-      isLocalPersisted: false,
-    };
+      const newDoc = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        type: "document",
+        uri: file.uri,
+        name: file.name || "Document",
+        mimeType: file.mimeType || "application/octet-stream",
+        isLocalPersisted: false,
+      };
 
-    const nextAttachments = [...(draft.attachments || []), newDoc];
+      const nextAttachments = [...(draft.attachments || []), newDoc];
 
-    setDraft((prev) => ({
-      ...prev,
-      attachments: nextAttachments,
-    }));
+      setDraft((prev) => ({
+        ...prev,
+        attachments: nextAttachments,
+      }));
 
-    await saveAttachmentsImmediately(nextAttachments);
-  } catch (error) {
-    console.log("addDocument error:", error);
+      await saveAttachmentsImmediately(nextAttachments);
+    } catch (error) {
+      console.log("addDocument error:", error);
+    }
   }
-}
 
   async function saveAttachmentsImmediately(nextAttachments) {
-  if (!tripId || !itemId || !draft) return;
+    if (!sourceTripId || !itemId || !draft) return;
 
-  try {
-    const safeDate = draft.dateObject || buildDateFromItem(draft);
+    try {
+      const safeDate = draft.dateObject || buildDateFromItem(draft);
 
-    const updatedItem = {
-      ...draft,
-      id: itemId,
-      month: MONTHS[safeDate.getMonth()],
-      year: safeDate.getFullYear(),
-      day: safeDate.getDate(),
-      hour24: safeDate.getHours(),
-      minute: safeDate.getMinutes(),
-      dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
-      timeLabel: formatTime(safeDate),
-      description: (draft.description || "").trim(),
-      location: (draft.location || "").trim(),
-      reservationNumber: (draft.reservationNumber || "").trim(),
-      attachments: nextAttachments,
-    };
+      const updatedItem = {
+        ...draft,
+        id: itemId,
+        month: MONTHS[safeDate.getMonth()],
+        year: safeDate.getFullYear(),
+        day: safeDate.getDate(),
+        hour24: safeDate.getHours(),
+        minute: safeDate.getMinutes(),
+        dateLabel: `${MONTHS[safeDate.getMonth()]} ${safeDate.getDate()}, ${safeDate.getFullYear()}`,
+        timeLabel: formatTime(safeDate),
+        description: (draft.description || "").trim(),
+        location: (draft.location || "").trim(),
+        reservationNumber: (draft.reservationNumber || "").trim(),
+        attachments: nextAttachments,
+      };
 
-    delete updatedItem.dateObject;
+      delete updatedItem.dateObject;
 
-    await upsertTripItem(tripId, updatedItem);
+      await upsertTripItem(sourceTripId, updatedItem, sourceTripOwnerId);
 
-    setDraft((prev) => ({
-      ...prev,
-      attachments: nextAttachments,
-    }));
+      const freshItem = await getTripItemById(
+        sourceTripId,
+        itemId,
+        sourceTripOwnerId
+      );
+      const safeFreshAttachments = Array.isArray(freshItem?.attachments) ? freshItem.attachments : nextAttachments;
 
-    setItem((prev) => ({
-      ...prev,
-      attachments: nextAttachments,
-    }));
-  } catch (error) {
-    console.log("saveAttachmentsImmediately error:", error);
+      setDraft((prev) => ({
+        ...prev,
+        attachments: safeFreshAttachments,
+      }));
+
+      setItem((prev) => ({
+        ...prev,
+        attachments: safeFreshAttachments,
+      }));
+    } catch (error) {
+      console.log("saveAttachmentsImmediately error:", error);
+    }
   }
-}
 
   function openAttachmentPicker() {
     Alert.alert("Add Attachment", "Choose what you want to add.", [
@@ -469,18 +503,18 @@ async function addDocument() {
     ]);
   }
 
-async function removeAttachment(attachmentId) {
-  const nextAttachments = (draft.attachments || []).filter(
-    (a) => String(a.id) !== String(attachmentId)
-  );
+  async function removeAttachment(attachmentId) {
+    const nextAttachments = (draft.attachments || []).filter(
+      (a) => String(a.id) !== String(attachmentId)
+    );
 
-  setDraft((prev) => ({
-    ...prev,
-    attachments: nextAttachments,
-  }));
+    setDraft((prev) => ({
+      ...prev,
+      attachments: nextAttachments,
+    }));
 
-  await saveAttachmentsImmediately(nextAttachments);
-}
+    await saveAttachmentsImmediately(nextAttachments);
+  }
 
   if (!draft) {
     return (
@@ -1015,7 +1049,7 @@ async function removeAttachment(attachmentId) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#DCE6FF",
+    backgroundColor: BG,
   },
 
   scrollContent: {
@@ -1032,7 +1066,7 @@ const styles = StyleSheet.create({
 
   loadingText: {
     fontSize: 16,
-    color: "#1F2937",
+    color: TEXT,
   },
 
   header: {
@@ -1051,12 +1085,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#C9D7FF",
     borderWidth: 1,
-    borderColor: "#B4C6FF",
+    borderColor: BORDER,
   },
 
   headerTitle: {
     fontSize: 20,
-    color: "#3F63F3",
+    color: BLUE,
     fontWeight: "700",
   },
 
@@ -1073,10 +1107,10 @@ const styles = StyleSheet.create({
     height: 230,
     marginRight: 10,
     borderRadius: 18,
-    backgroundColor: "#D4DEFF",
+    backgroundColor: "#EEF2FF",
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#B4C6FF",
+    borderColor: BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1091,7 +1125,7 @@ const styles = StyleSheet.create({
     height: 140,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#B4C6FF",
+    borderColor: BORDER,
     backgroundColor: "#D4DEFF",
     alignItems: "center",
     justifyContent: "center",
@@ -1106,12 +1140,17 @@ const styles = StyleSheet.create({
   },
 
   summaryCard: {
-    backgroundColor: "#D4DEFF",
+    backgroundColor: "#C9D7FF",
     borderWidth: 1,
-    borderColor: "#B4C6FF",
+    borderColor: BORDER,
     borderRadius: 18,
     padding: 16,
     marginBottom: 12,
+    shadowColor: "#3F63F3",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
 
   summaryTop: {
@@ -1131,19 +1170,20 @@ const styles = StyleSheet.create({
   },
 
   categoryBadgeText: {
-    color: "#3F63F3",
+    color: BLUE,
     fontSize: 12,
     fontWeight: "700",
   },
 
   priceLarge: {
     fontSize: 20,
-    color: "#1F2937",
+    color: TEXT,
     fontWeight: "700",
   },
 
   mainTitle: {
-    fontSize: 22,
+    fontSize: 24,
+    lineHeight: 30,
     color: "#111827",
     fontWeight: "700",
     marginBottom: 12,
@@ -1165,10 +1205,15 @@ const styles = StyleSheet.create({
   infoCard: {
     backgroundColor: "#D4DEFF",
     borderWidth: 1,
-    borderColor: "#B4C6FF",
+    borderColor: BORDER,
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
+    shadowColor: "#3F63F3",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
 
   rowBetween: {
@@ -1181,13 +1226,13 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#1F2937",
+    color: TEXT,
     marginBottom: 6,
   },
 
   infoValue: {
     fontSize: 15,
-    color: "#1F2937",
+    color: TEXT,
     lineHeight: 22,
   },
 
@@ -1211,7 +1256,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 15,
-    color: "#1F2937",
+    color: TEXT,
   },
 
   multilineInput: {
@@ -1241,7 +1286,7 @@ const styles = StyleSheet.create({
   },
 
   categoryPillText: {
-    color: "#1F2937",
+    color: TEXT,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -1252,7 +1297,7 @@ const styles = StyleSheet.create({
 
   pricePreview: {
     fontSize: 16,
-    color: "#1F2937",
+    color: TEXT,
     marginBottom: 4,
     fontWeight: "600",
   },
@@ -1271,7 +1316,7 @@ const styles = StyleSheet.create({
 
   timeButtonText: {
     fontSize: 15,
-    color: "#1F2937",
+    color: TEXT,
   },
 
   attachmentsRow: {
@@ -1281,7 +1326,7 @@ const styles = StyleSheet.create({
 
   attachmentCard: {
     width: 120,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#F4F7FF",
     borderWidth: 1,
     borderColor: "#9FB2FF",
     borderRadius: 12,
@@ -1300,14 +1345,14 @@ const styles = StyleSheet.create({
 
   attachmentName: {
     fontSize: 12,
-    color: "#1F2937",
+    color: TEXT,
   },
 
   removeAttachmentButton: {
     position: "absolute",
     top: -6,
     right: -6,
-    backgroundColor: "#DCE6FF",
+    backgroundColor: BG,
     borderRadius: 999,
   },
 
@@ -1326,7 +1371,7 @@ const styles = StyleSheet.create({
   documentName: {
     flex: 1,
     marginLeft: 8,
-    color: "#1F2937",
+    color: TEXT,
     fontSize: 14,
   },
 
@@ -1344,7 +1389,7 @@ const styles = StyleSheet.create({
   },
 
   addAttachmentButtonText: {
-    color: "#3F63F3",
+    color: BLUE,
     fontWeight: "700",
   },
 
@@ -1367,7 +1412,7 @@ const styles = StyleSheet.create({
   },
 
   cancelButtonText: {
-    color: "#1F2937",
+    color: TEXT,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -1391,9 +1436,9 @@ const styles = StyleSheet.create({
     marginTop: 6,
     height: 52,
     borderRadius: 12,
-    backgroundColor: "#FEE2E2",
+    backgroundColor: "#FFE4E6",
     borderWidth: 1,
-    borderColor: "#FCA5A5",
+    borderColor: "#FDA4AF",
     alignItems: "center",
     justifyContent: "center",
   },
