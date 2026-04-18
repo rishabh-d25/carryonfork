@@ -27,13 +27,22 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  where
+  updateDoc,
+  where,
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
-const BLUE = "#4967E8";
-const TEXT = "#1F1F1F";
-const BORDER = "#DADADA";
+const BLUE = "#3F63F3";
+const BG = "#DCE6FF";
+const CARD = "#D4DEFF";
+const CARD_ALT = "#C9D7FF";
+const BORDER = "#B4C6FF";
+const TEXT = "#1F2937";
+const MUTED = "#6B7280";
+
+function uniqueUids(values) {
+  return Array.from(new Set((values || []).filter(Boolean)));
+}
 
 export default function GroupChatScreen() {
   const router = useRouter();
@@ -49,7 +58,6 @@ export default function GroupChatScreen() {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
 
-  
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -58,52 +66,121 @@ export default function GroupChatScreen() {
 
   const flatListRef = useRef(null);
 
-  
   useEffect(() => {
     const loadChatData = async () => {
       try {
-        const chatDoc = await getDoc(doc(db, "groupchats", chatId));
-        if (!chatDoc.exists()) return;
+        const chatSnap = await getDoc(doc(db, "groupchats", chatId));
+        if (!chatSnap.exists()) {
+          setLoading(false);
+          return;
+        }
 
-        const chatData = chatDoc.data();
+        const chatData = chatSnap.data();
         const fetchedTripId = chatData.tripId;
-        const memberUids = chatData.members || [];
+        const chatMemberUids = Array.isArray(chatData.members) ? chatData.members : [];
         setTripId(fetchedTripId);
 
-        
-        let foundLocation = "Group Trip";
-        let foundTripData = null;
-        let foundOwnerId = null;
-        for (const uid of memberUids) {
-          try {
-            const tripDoc = await getDoc(doc(db, "users", uid, "trips", fetchedTripId));
-            if (tripDoc.exists()) {
-              foundLocation = tripDoc.data().location || "Group Trip";
-              foundTripData = tripDoc.data();
-              foundOwnerId = uid;
-              break;
-            }
-          } catch (_) {}
-        }
-        setTripLocation(foundLocation);
-        setTripData(foundTripData);
-        setTripOwnerId(foundOwnerId);
+        let sourceTripData = null;
+        let sourceTripOwnerId = null;
+        let sourceTripId = fetchedTripId;
 
-        
+        // 1) First try current user's trip copy
+        if (currentUser?.uid && fetchedTripId) {
+          try {
+            const myTripSnap = await getDoc(
+              doc(db, "users", currentUser.uid, "trips", fetchedTripId)
+            );
+
+            if (myTripSnap.exists()) {
+              const myTrip = myTripSnap.data();
+
+              if (myTrip.isSharedTrip && myTrip.sharedTripOwnerId && myTrip.sharedTripId) {
+                sourceTripOwnerId = myTrip.sharedTripOwnerId;
+                sourceTripId = myTrip.sharedTripId;
+
+                const ownerTripSnap = await getDoc(
+                  doc(db, "users", sourceTripOwnerId, "trips", sourceTripId)
+                );
+
+                if (ownerTripSnap.exists()) {
+                  sourceTripData = ownerTripSnap.data();
+                } else {
+                  sourceTripData = myTrip;
+                  sourceTripOwnerId = myTrip.tripOwnerId || currentUser.uid;
+                }
+              } else {
+                sourceTripData = myTrip;
+                sourceTripOwnerId = currentUser.uid;
+              }
+            }
+          } catch (e) {
+            console.log("Error loading current user's trip copy:", e);
+          }
+        }
+
+        // 2) Fallback: search chat members' trip docs
+        if (!sourceTripData) {
+          for (const uid of chatMemberUids) {
+            try {
+              const tripSnap = await getDoc(doc(db, "users", uid, "trips", fetchedTripId));
+              if (tripSnap.exists()) {
+                const foundTrip = tripSnap.data();
+                sourceTripData = foundTrip;
+                sourceTripOwnerId =
+                  foundTrip.sharedTripOwnerId ||
+                  foundTrip.tripOwnerId ||
+                  uid;
+                sourceTripId =
+                  foundTrip.sharedTripId ||
+                  foundTrip.originalTripId ||
+                  fetchedTripId;
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+
+        setTripData(sourceTripData);
+        setTripOwnerId(sourceTripOwnerId);
+        setTripLocation(sourceTripData?.location || "Group Trip");
+
+        const participantUids = uniqueUids([
+          ...chatMemberUids,
+          ...(Array.isArray(sourceTripData?.memberIds) ? sourceTripData.memberIds : []),
+          ...(Array.isArray(sourceTripData?.allowedUsers) ? sourceTripData.allowedUsers : []),
+          ...(Array.isArray(sourceTripData?.sharedWith) ? sourceTripData.sharedWith : []),
+          sourceTripOwnerId,
+        ]);
+
         const memberData = await Promise.all(
-          memberUids.map(async (uid) => {
+          participantUids.map(async (uid) => {
             try {
               const userDoc = await getDoc(doc(db, "users", uid));
               return {
                 uid,
-                username: userDoc.exists() ? userDoc.data().username || "Unknown" : "Unknown",
+                username: userDoc.exists()
+                  ? userDoc.data().username || "Unknown"
+                  : "Unknown",
               };
             } catch (_) {
               return { uid, username: "Unknown" };
             }
           })
         );
+
         setMembers(memberData);
+
+        // Optional sync so chat doc also keeps all trip participants
+        const missingFromChat = participantUids.filter((uid) => !chatMemberUids.includes(uid));
+        if (missingFromChat.length > 0) {
+          try {
+            await updateDoc(doc(db, "groupchats", chatId), {
+              members: participantUids,
+            });
+          } catch (e) {
+            console.log("Could not sync chat members:", e);
+          }
+        }
       } catch (e) {
         console.error("Error loading chat data:", e);
       } finally {
@@ -112,9 +189,8 @@ export default function GroupChatScreen() {
     };
 
     if (chatId) loadChatData();
-  }, [chatId]);
+  }, [chatId, currentUser?.uid]);
 
-  
   useEffect(() => {
     if (!chatId) return;
     const q = query(
@@ -144,7 +220,6 @@ export default function GroupChatScreen() {
     }
   };
 
-  
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
@@ -156,7 +231,7 @@ export default function GroupChatScreen() {
       const snapshot = await getDocs(q);
       const results = snapshot.docs
         .map((d) => ({ uid: d.id, ...d.data() }))
-        .filter((u) => u.uid !== currentUser.uid)
+        .filter((u) => u.uid !== currentUser?.uid)
         .filter((u) => !members.find((m) => m.uid === u.uid));
       setSearchResults(results);
     } catch (e) {
@@ -166,16 +241,13 @@ export default function GroupChatScreen() {
     }
   };
 
-  
   const handleSendInvite = async (targetUser) => {
-    if (!tripData || !tripId) return;
+    if (!tripData || !tripId || !currentUser) return;
     setSendingInvite(targetUser.uid);
     try {
-      
       const currentUserDoc = await getDoc(doc(db, "users", currentUser.uid));
       const currentUsername = currentUserDoc.data()?.username || "Someone";
 
-      
       await addDoc(collection(db, "users", targetUser.uid, "invites"), {
         tripId,
         chatId,
@@ -204,9 +276,16 @@ export default function GroupChatScreen() {
     if (!timestamp?.toDate) return "";
     const d = timestamp.toDate();
     return (
-      d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+      d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }) +
       ", " +
-      d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+      d.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      })
     );
   };
 
@@ -259,24 +338,24 @@ export default function GroupChatScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="dark-content" backgroundColor={BG} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
-        
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} style={styles.iconButton} hitSlop={8}>
             <Ionicons name="chevron-back" size={24} color={TEXT} />
           </Pressable>
+
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>{tripLocation}</Text>
             <Text style={styles.headerSubtitle} numberOfLines={1}>
               {members.map((m) => m.username).join(", ")}
             </Text>
           </View>
-          
+
           <Pressable
             onPress={() => setShowSearch(true)}
             style={styles.iconButton}
@@ -286,7 +365,6 @@ export default function GroupChatScreen() {
           </Pressable>
         </View>
 
-        
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -299,12 +377,11 @@ export default function GroupChatScreen() {
           }
         />
 
-        
         <View style={styles.inputRow}>
           <TextInput
             style={styles.input}
             placeholder="Message..."
-            placeholderTextColor="#aaa"
+            placeholderTextColor="#94A3B8"
             value={inputText}
             onChangeText={setInputText}
             multiline
@@ -320,7 +397,6 @@ export default function GroupChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      
       <Modal visible={showSearch} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -337,12 +413,11 @@ export default function GroupChatScreen() {
               </Pressable>
             </View>
 
-            
             <View style={styles.searchRow}>
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search by username"
-                placeholderTextColor="#aaa"
+                placeholderTextColor="#94A3B8"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 autoCapitalize="none"
@@ -357,7 +432,6 @@ export default function GroupChatScreen() {
               </TouchableOpacity>
             </View>
 
-            
             {searchResults.length === 0 && !searching && searchQuery.trim() !== "" && (
               <Text style={styles.noResults}>No users found</Text>
             )}
@@ -393,7 +467,7 @@ export default function GroupChatScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: BG,
   },
   header: {
     flexDirection: "row",
@@ -402,12 +476,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
+    backgroundColor: BG,
   },
   iconButton: {
     width: 36,
     height: 36,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 18,
+    backgroundColor: CARD_ALT,
+    borderWidth: 1,
+    borderColor: BORDER,
   },
   headerCenter: {
     flex: 1,
@@ -421,7 +500,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 12,
-    color: "#888",
+    color: MUTED,
     marginTop: 1,
   },
   messagesList: {
@@ -433,7 +512,7 @@ const styles = StyleSheet.create({
   timestamp: {
     textAlign: "center",
     fontSize: 12,
-    color: "#aaa",
+    color: MUTED,
     marginVertical: 10,
   },
   messageRow: {
@@ -449,7 +528,9 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#E0E5FF",
+    backgroundColor: CARD_ALT,
+    borderWidth: 1,
+    borderColor: BORDER,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 2,
@@ -464,7 +545,7 @@ const styles = StyleSheet.create({
   },
   senderName: {
     fontSize: 12,
-    color: "#888",
+    color: MUTED,
     marginBottom: 3,
     marginLeft: 4,
   },
@@ -478,7 +559,9 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   bubbleThem: {
-    backgroundColor: "#F0F0F0",
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
     borderBottomLeftRadius: 4,
   },
   bubbleText: {
@@ -497,7 +580,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: BORDER,
     gap: 10,
-    backgroundColor: "#fff",
+    backgroundColor: BG,
   },
   input: {
     flex: 1,
@@ -509,7 +592,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: TEXT,
     maxHeight: 100,
-    backgroundColor: "#fafafa",
+    backgroundColor: CARD,
   },
   sendBtn: {
     width: 40,
@@ -520,21 +603,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendBtnDisabled: {
-    backgroundColor: "#c0c0c0",
+    backgroundColor: "#A5B4FC",
   },
 
-  // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(15,23,42,0.35)",
     justifyContent: "flex-end",
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: BG,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
     minHeight: 300,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: BORDER,
   },
   modalHeader: {
     flexDirection: "row",
@@ -561,7 +647,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 15,
     color: TEXT,
-    backgroundColor: "#fafafa",
+    backgroundColor: CARD,
   },
   searchBtn: {
     width: 44,
@@ -573,7 +659,7 @@ const styles = StyleSheet.create({
   },
   noResults: {
     textAlign: "center",
-    color: "#aaa",
+    color: MUTED,
     fontSize: 14,
     marginTop: 12,
   },
@@ -582,14 +668,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: BORDER,
     gap: 12,
   },
   resultAvatar: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#E0E5FF",
+    backgroundColor: CARD_ALT,
+    borderWidth: 1,
+    borderColor: BORDER,
     alignItems: "center",
     justifyContent: "center",
   },

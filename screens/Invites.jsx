@@ -1,14 +1,57 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { addDoc, arrayUnion, collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import {
+  arrayUnion,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator, Pressable, SafeAreaView, ScrollView,
-  StatusBar, StyleSheet, Text, TouchableOpacity, View,
+  ActivityIndicator,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
-const BLUE = "#4967E8";
+const BLUE = "#3F63F3";
+const BG = "#DCE6FF";
+const CARD = "#D4DEFF";
+const CARD_ALT = "#C9D7FF";
+const BORDER = "#B4C6FF";
+const TEXT = "#1F2937";
+const MUTED = "#6B7280";
+
+function getInviteOwnerId(invite) {
+  return (
+    invite.tripOwnerId ||
+    invite.ownerId ||
+    invite.fromUid ||
+    invite.fromUserId ||
+    ""
+  );
+}
+
+function getInviteTripId(invite) {
+  return (
+    invite.tripId ||
+    invite.originalTripId ||
+    invite.sharedTripId ||
+    invite.tripDocId ||
+    ""
+  );
+}
 
 export default function InvitesScreen() {
   const router = useRouter();
@@ -18,41 +61,171 @@ export default function InvitesScreen() {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
 
-  
   useEffect(() => {
-    const invitesRef = collection(db, "users", currentUser.uid, "invites");
-    return onSnapshot(invitesRef, async (snapshot) => {
-      const rawInvites = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!currentUser) {
+      setInvites([]);
+      setLoading(false);
+      return;
+    }
 
-      const invitesWithTripData = await Promise.all(rawInvites.map(async (invite) => {
-        try {
-          const tripDoc = await getDoc(doc(db, "users", invite.tripOwnerId, "trips", invite.tripId));
-          return { ...invite, tripData: tripDoc.exists() ? tripDoc.data() : null };
-        } catch (_) {
-          return { ...invite, tripData: null };
-        }
-      }));
+    const invitesRef = collection(db, "users", currentUser.uid, "invites");
+
+    return onSnapshot(invitesRef, async (snapshot) => {
+      const rawInvites = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      const invitesWithTripData = await Promise.all(
+        rawInvites.map(async (invite) => {
+          const tripOwnerId = getInviteOwnerId(invite);
+          const tripId = getInviteTripId(invite);
+
+          if (!tripOwnerId || !tripId) {
+            return {
+              ...invite,
+              tripOwnerId,
+              tripId,
+              tripData: null,
+            };
+          }
+
+          try {
+            const tripRef = doc(db, "users", tripOwnerId, "trips", tripId);
+            const tripDocSnap = await getDoc(tripRef);
+
+            return {
+              ...invite,
+              tripOwnerId,
+              tripId,
+              tripData: tripDocSnap.exists() ? tripDocSnap.data() : null,
+            };
+          } catch (error) {
+            console.log("Error loading invite trip:", error);
+            return {
+              ...invite,
+              tripOwnerId,
+              tripId,
+              tripData: null,
+            };
+          }
+        })
+      );
 
       setInvites(invitesWithTripData);
       setLoading(false);
     });
-  }, []);
+  }, [currentUser]);
 
   async function acceptInvite(invite) {
+    if (!currentUser) return;
+
+    const tripOwnerId = getInviteOwnerId(invite);
+    const tripId = getInviteTripId(invite);
+
+    if (!tripOwnerId || !tripId) {
+      console.log("Missing tripOwnerId or tripId on invite:", invite);
+      return;
+    }
+
     setProcessingId(invite.id);
+
     try {
-      
-      if (invite.tripData) {
-        await addDoc(collection(db, "users", currentUser.uid, "trips"), {
-          ...invite.tripData,
-          createdAt: serverTimestamp(),
+      const ownerTripRef = doc(db, "users", tripOwnerId, "trips", tripId);
+      const ownerTripSnap = await getDoc(ownerTripRef);
+
+      if (!ownerTripSnap.exists()) {
+        throw new Error("Trip no longer exists.");
+      }
+
+      const ownerTripData = ownerTripSnap.data() || {};
+
+      const mergedAllowedUsers = Array.from(
+        new Set([
+          ...(Array.isArray(ownerTripData.allowedUsers)
+            ? ownerTripData.allowedUsers
+            : []),
+          currentUser.uid,
+        ])
+      );
+
+      const mergedMemberIds = Array.from(
+        new Set([
+          ...(Array.isArray(ownerTripData.memberIds)
+            ? ownerTripData.memberIds
+            : []),
+          currentUser.uid,
+        ])
+      );
+
+      const mergedSharedWith = Array.from(
+        new Set([
+          ...(Array.isArray(ownerTripData.sharedWith)
+            ? ownerTripData.sharedWith
+            : []),
+          currentUser.uid,
+        ])
+      );
+
+      // 1) Update the OWNER'S real trip so this user is a member of the shared source trip
+      await updateDoc(ownerTripRef, {
+        allowedUsers: arrayUnion(currentUser.uid),
+        memberIds: arrayUnion(currentUser.uid),
+        sharedWith: arrayUnion(currentUser.uid),
+        withGroup: true,
+        updatedAt: serverTimestamp(),
+      });
+
+      // 2) Create a POINTER trip doc in the invited user's account
+      //    IMPORTANT: use the SAME tripId so navigation stays consistent
+      const invitedUserTripRef = doc(db, "users", currentUser.uid, "trips", tripId);
+
+      await setDoc(
+        invitedUserTripRef,
+        {
+          ...ownerTripData,
+          id: tripId,
+
+          // shared trip markers
+          isSharedTrip: true,
+          acceptedFromInvite: true,
+          withGroup: true,
+
+          // source of truth
+          tripOwnerId,
+          ownerId: tripOwnerId,
+          originalTripId: tripId,
+          sharedTripId: tripId,
+          sharedTripOwnerId: tripOwnerId,
+          sourceTripId: tripId,
+          sourceTripOwnerId: tripOwnerId,
+
+          // keep member lists in sync locally too
+          allowedUsers: mergedAllowedUsers,
+          memberIds: mergedMemberIds,
+          sharedWith: mergedSharedWith,
+
+          // timestamps
+          updatedAt: serverTimestamp(),
+          acceptedAt: serverTimestamp(),
+          createdAt: ownerTripData.createdAt || serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      if (invite.chatId) {
+        await updateDoc(doc(db, "groupchats", invite.chatId), {
+          members: arrayUnion(currentUser.uid),
         });
       }
-      
-      await updateDoc(doc(db, "groupchats", invite.chatId), { members: arrayUnion(currentUser.uid) });
-      
+
       await deleteDoc(doc(db, "users", currentUser.uid, "invites", invite.id));
-      router.push({ pathname: "/chat", params: { chatId: invite.chatId } });
+
+      router.push({
+        pathname: "/tripitinerary",
+        params: {
+          tripId: String(tripId),
+          sourceTripId: String(tripId),
+          sourceTripOwnerId: String(tripOwnerId),
+        },
+      });
     } catch (err) {
       console.error("Error accepting invite:", err);
     } finally {
@@ -61,6 +234,8 @@ export default function InvitesScreen() {
   }
 
   async function declineInvite(invite) {
+    if (!currentUser) return;
+
     setProcessingId(invite.id);
     try {
       await deleteDoc(doc(db, "users", currentUser.uid, "invites", invite.id));
@@ -73,20 +248,44 @@ export default function InvitesScreen() {
 
   function formatDate(timestamp) {
     if (!timestamp?.toDate) return "";
-    return timestamp.toDate().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return timestamp.toDate().toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   }
 
-  // UI
+  function getFallbackLocation(invite) {
+    return (
+      invite.tripData?.location ||
+      invite.location ||
+      invite.tripLocation ||
+      invite.tripName ||
+      invite.tripTitle ||
+      "Trip"
+    );
+  }
+
+  function getFallbackDescription(invite) {
+    return (
+      invite.tripData?.description ||
+      invite.description ||
+      invite.tripDescription ||
+      ""
+    );
+  }
+
   return (
     <SafeAreaView style={s.safe}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="dark-content" backgroundColor={BG} />
 
-      
       <View style={s.header}>
         <Pressable onPress={() => router.back()} style={s.iconButton} hitSlop={8}>
-          <Ionicons name="chevron-back" size={24} color="#1F1F1F" />
+          <Ionicons name="chevron-back" size={24} color={TEXT} />
         </Pressable>
+
         <Text style={s.title}>Invites</Text>
+
         <View style={s.iconButton} />
       </View>
 
@@ -94,59 +293,114 @@ export default function InvitesScreen() {
         <ActivityIndicator style={{ flex: 1 }} size="large" color={BLUE} />
       ) : invites.length === 0 ? (
         <View style={s.emptyState}>
-          <Ionicons name="mail-open-outline" size={52} color="#ccc" />
+          <View style={s.emptyIconWrap}>
+            <Ionicons name="mail-open-outline" size={42} color={BLUE} />
+          </View>
           <Text style={s.emptyText}>No pending invites</Text>
+          <Text style={s.emptySubtext}>
+            When someone invites you to a trip, it will show up here.
+          </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={s.list}>
+        <ScrollView contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>
           {invites.map((invite) => {
             const isProcessing = processingId === invite.id;
+
             return (
               <View key={invite.id} style={s.card}>
-
-                
                 <View style={s.senderRow}>
                   <View style={s.avatar}>
-                    <Text style={s.avatarLetter}>{invite.fromUsername?.charAt(0).toUpperCase() || "?"}</Text>
+                    <Text style={s.avatarLetter}>
+                      {invite.fromUsername?.charAt(0).toUpperCase() || "?"}
+                    </Text>
                   </View>
-                  <View>
+
+                  <View style={{ flex: 1 }}>
                     <Text style={s.senderLabel}>
-                      Invited by <Text style={s.senderName}>{invite.fromUsername}</Text>
+                      Invited by{" "}
+                      <Text style={s.senderName}>
+                        {invite.fromUsername || "Someone"}
+                      </Text>
                     </Text>
                     <Text style={s.inviteDate}>{formatDate(invite.createdAt)}</Text>
                   </View>
                 </View>
 
-                
-                {invite.tripData ? (
-                  <View style={s.tripCard}>
-                    <Text style={s.tripLocation}>{invite.tripData.location}</Text>
-                    {[
-                      { icon: "calendar-outline", text: `${formatDate(invite.tripData.startDate)} → ${formatDate(invite.tripData.endDate)}` },
-                      invite.tripData.budget && { icon: "cash-outline", text: `$${invite.tripData.budget}` },
-                      invite.tripData.description && { icon: "document-text-outline", text: invite.tripData.description },
-                      { icon: "people-outline", text: invite.tripData.withGroup ? "Group trip" : "Solo trip" },
-                    ].filter(Boolean).map(({ icon, text }) => (
-                      <View key={icon} style={s.detailRow}>
-                        <Ionicons name={icon} size={14} color="#888" />
-                        <Text style={s.detailText}>{text}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={s.noTripText}>Trip details unavailable</Text>
-                )}
+                <View style={s.tripCard}>
+                  <Text style={s.tripLocation}>{getFallbackLocation(invite)}</Text>
 
-                
-                <View style={s.buttonRow}>
-                  <TouchableOpacity style={s.declineButton} onPress={() => declineInvite(invite)} disabled={isProcessing}>
-                    {isProcessing ? <ActivityIndicator size="small" color="#888" /> : <Text style={s.declineText}>Decline</Text>}
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.acceptButton} onPress={() => acceptInvite(invite)} disabled={isProcessing}>
-                    {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.acceptText}>Accept</Text>}
-                  </TouchableOpacity>
+                  {invite.tripData ? (
+                    <>
+                      {[
+                        {
+                          icon: "calendar-outline",
+                          text: `${formatDate(invite.tripData.startDate)} → ${formatDate(invite.tripData.endDate)}`,
+                        },
+                        invite.tripData.budget && {
+                          icon: "cash-outline",
+                          text: `$${invite.tripData.budget}`,
+                        },
+                        invite.tripData.description && {
+                          icon: "document-text-outline",
+                          text: invite.tripData.description,
+                        },
+                        {
+                          icon: "people-outline",
+                          text: invite.tripData.withGroup ? "Group trip" : "Solo trip",
+                        },
+                      ]
+                        .filter(Boolean)
+                        .map(({ icon, text }) => (
+                          <View key={`${icon}-${text}`} style={s.detailRow}>
+                            <Ionicons name={icon} size={14} color={MUTED} />
+                            <Text style={s.detailText}>{text}</Text>
+                          </View>
+                        ))}
+                    </>
+                  ) : (
+                    <>
+                      {!!getFallbackDescription(invite) && (
+                        <View style={s.detailRow}>
+                          <Ionicons
+                            name="document-text-outline"
+                            size={14}
+                            color={MUTED}
+                          />
+                          <Text style={s.detailText}>{getFallbackDescription(invite)}</Text>
+                        </View>
+                      )}
+                      <Text style={s.noTripText}>Trip details unavailable</Text>
+                    </>
+                  )}
                 </View>
 
+                <View style={s.buttonRow}>
+                  <TouchableOpacity
+                    style={s.declineButton}
+                    onPress={() => declineInvite(invite)}
+                    disabled={isProcessing}
+                    activeOpacity={0.85}
+                  >
+                    {isProcessing ? (
+                      <ActivityIndicator size="small" color={MUTED} />
+                    ) : (
+                      <Text style={s.declineText}>Decline</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={s.acceptButton}
+                    onPress={() => acceptInvite(invite)}
+                    disabled={isProcessing}
+                    activeOpacity={0.85}
+                  >
+                    {isProcessing ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={s.acceptText}>Accept</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             );
           })}
@@ -157,28 +411,201 @@ export default function InvitesScreen() {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#F7F7F7" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, backgroundColor: "#F7F7F7" },
-  iconButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 20, fontWeight: "700", color: "#1F1F1F" },
-  emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  emptyText: { fontSize: 16, color: "#aaa" },
-  list: { padding: 16, gap: 14 },
-  card: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#DADADA", padding: 16 },
-  senderRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#E0E5FF", alignItems: "center", justifyContent: "center" },
-  avatarLetter: { fontSize: 16, fontWeight: "700", color: BLUE },
-  senderLabel: { fontSize: 14, color: "#555" },
-  senderName: { fontWeight: "700", color: "#1F1F1F" },
-  inviteDate: { fontSize: 12, color: "#aaa", marginTop: 2 },
-  tripCard: { backgroundColor: "#F7F7F7", borderRadius: 10, padding: 12, gap: 6, marginBottom: 14 },
-  tripLocation: { fontSize: 17, fontWeight: "700", color: "#1F1F1F", marginBottom: 6 },
-  detailRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  detailText: { fontSize: 13, color: "#555", flex: 1 },
-  noTripText: { fontSize: 13, color: "#aaa", marginBottom: 14 },
-  buttonRow: { flexDirection: "row", gap: 10 },
-  declineButton: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: "#DADADA", alignItems: "center", justifyContent: "center" },
-  declineText: { fontSize: 15, fontWeight: "600", color: "#888" },
-  acceptButton: { flex: 1, height: 44, borderRadius: 10, backgroundColor: BLUE, alignItems: "center", justifyContent: "center" },
-  acceptText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  safe: {
+    flex: 1,
+    backgroundColor: BG,
+  },
+
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+    backgroundColor: BG,
+  },
+
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#C9D7FF",
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+
+  title: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: BLUE,
+  },
+
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+
+  emptyIconWrap: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: CARD_ALT,
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+
+  emptyText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: TEXT,
+  },
+
+  emptySubtext: {
+    marginTop: 6,
+    textAlign: "center",
+    fontSize: 13,
+    color: MUTED,
+    lineHeight: 19,
+  },
+
+  list: {
+    padding: 16,
+    gap: 14,
+    paddingBottom: 28,
+  },
+
+  card: {
+    backgroundColor: CARD,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+  },
+
+  senderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 14,
+  },
+
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: CARD_ALT,
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  avatarLetter: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: BLUE,
+  },
+
+  senderLabel: {
+    fontSize: 14,
+    color: MUTED,
+  },
+
+  senderName: {
+    fontWeight: "700",
+    color: TEXT,
+  },
+
+  inviteDate: {
+    fontSize: 12,
+    color: MUTED,
+    marginTop: 2,
+  },
+
+  tripCard: {
+    backgroundColor: CARD_ALT,
+    borderRadius: 14,
+    padding: 12,
+    gap: 7,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+
+  tripLocation: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: TEXT,
+    marginBottom: 4,
+  },
+
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  detailText: {
+    fontSize: 13,
+    color: MUTED,
+    flex: 1,
+    lineHeight: 18,
+  },
+
+  noTripText: {
+    fontSize: 13,
+    color: MUTED,
+    marginTop: 2,
+    fontStyle: "italic",
+  },
+
+  buttonRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  declineButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD_ALT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  declineText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: MUTED,
+  },
+
+  acceptButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#5A75F5",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#3F63F3",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+
+  acceptText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
+  },
 });

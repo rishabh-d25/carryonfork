@@ -280,9 +280,8 @@ export default function UpcomingScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: BG,
+    backgroundColor: "#DCE6FF",
   },
-
 
   header: {
     flexDirection: "row",
@@ -292,31 +291,26 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+
   title: {
     fontSize: 20,
     fontWeight: "700",
-    color: TEXT,
+    color: "#3F63F3",
   },
+
   loadingWrap: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
 
- 
+  /* ===== CALENDAR ===== */
   calendarCard: {
-    backgroundColor: "#fff",
+    backgroundColor: "#D4DEFF",
     marginHorizontal: 16,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#B4C6FF",
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: 16,
@@ -336,7 +330,7 @@ const styles = StyleSheet.create({
   monthYearText: {
     fontSize: 16,
     fontWeight: "700",
-    color: TEXT,
+    color: "#1F2937",
   },
   weekRow: {
     flexDirection: "row",
@@ -347,7 +341,7 @@ const styles = StyleSheet.create({
   weekText: {
     width: "14.28%",
     textAlign: "center",
-    color: "#8D8D8D",
+    color: "#6B7280",
     fontSize: 12,
   },
   daysGrid: {
@@ -364,7 +358,7 @@ const styles = StyleSheet.create({
   },
   dayText: {
     fontSize: 15,
-    color: "#2B2B2B",
+    color: "#1F2937",
   },
   dotsRow: {
     flexDirection: "row",
@@ -377,7 +371,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 
-
+  /* ===== DETAILS ===== */
   detailsArea: {
     flex: 1,
     marginHorizontal: 16,
@@ -388,15 +382,17 @@ const styles = StyleSheet.create({
   },
   placeholderText: {
     textAlign: "center",
-    color: "#aaa",
+    color: "#6B7280",
     fontSize: 14,
     marginTop: 24,
   },
+
+  /* ===== TRIP CARD ===== */
   tripCard: {
-    backgroundColor: "#fff",
+    backgroundColor: "#D4DEFF",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#B4C6FF",
     borderLeftWidth: 4,
     padding: 14,
   },
@@ -414,8 +410,9 @@ const styles = StyleSheet.create({
   tripLocation: {
     fontSize: 17,
     fontWeight: "700",
-    color: TEXT,
+    color: "#1F2937",
   },
+
   tripDetailsGrid: {
     gap: 6,
     marginBottom: 12,
@@ -427,35 +424,38 @@ const styles = StyleSheet.create({
   },
   tripDetailLabel: {
     fontSize: 13,
-    color: "#888",
+    color: "#6B7280",
     fontWeight: "600",
     width: 90,
   },
   tripDetailValue: {
     fontSize: 13,
-    color: TEXT,
+    color: "#1F2937",
     flex: 1,
     textAlign: "right",
   },
+
   tripActions: {
     flexDirection: "row",
     gap: 12,
     borderTopWidth: 1,
-    borderTopColor: "#eee",
+    borderTopColor: "#B4C6FF",
     paddingTop: 10,
   },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#C9D7FF",
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
   },
   actionLabel: {
     fontSize: 13,
     fontWeight: "600",
-    color: BLUE,
+    color: "#3F63F3",
   },
 });

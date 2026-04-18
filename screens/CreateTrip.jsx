@@ -250,11 +250,12 @@ export default function CreateTrip() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#DCE6FF",
   },
   container: {
     paddingHorizontal: 24,
     paddingBottom: 40,
+    backgroundColor: "#DCE6FF",
   },
   iconButton: {
     width: 36,
@@ -262,6 +263,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#C9D7FF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
   },
 
   header: {
@@ -274,7 +278,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 20,
     fontWeight: "700",
-    color: "#111",
+    color: "#3F63F3",
     textAlign: "center",
     marginRight: 8,
   },
@@ -283,7 +287,7 @@ const styles = StyleSheet.create({
   },
   groupLabel: {
     fontSize: 11,
-    color: "#555",
+    color: "#4B5563",
     marginBottom: 2,
   },
 
@@ -293,19 +297,19 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#222",
+    color: "#1F2937",
     marginBottom: 8,
   },
 
   input: {
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#B4C6FF",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
-    color: "#111",
-    backgroundColor: "#fafafa",
+    color: "#1F2937",
+    backgroundColor: "#D4DEFF",
   },
   textArea: {
     height: 80,
@@ -321,6 +325,7 @@ const styles = StyleSheet.create({
   searchIcon: {
     fontSize: 18,
     marginLeft: 4,
+    color: "#3F63F3",
   },
 
   dateRow: {
@@ -338,19 +343,19 @@ const styles = StyleSheet.create({
   },
   dateSep: {
     fontSize: 18,
-    color: "#888",
+    color: "#6B7280",
     paddingHorizontal: 2,
   },
 
   createBtn: {
-    backgroundColor: "#4F6BFF",
+    backgroundColor: "#5A75F5",
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
     marginTop: 12,
-    shadowColor: "#4F6BFF",
+    shadowColor: "#3F63F3",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 5,
   },

@@ -26,18 +26,22 @@ function getCurrentUid() {
   return uid;
 }
 
-function getItineraryCollectionRef(tripId) {
-  const uid = getCurrentUid();
+function getResolvedUid(ownerUid) {
+  return ownerUid || getCurrentUid();
+}
+
+function getItineraryCollectionRef(tripId, ownerUid) {
+  const uid = getResolvedUid(ownerUid);
   return collection(db, "users", uid, "trips", String(tripId), "itinerary");
 }
 
-function getItineraryItemDocRef(tripId, itemId) {
-  const uid = getCurrentUid();
+function getItineraryItemDocRef(tripId, itemId, ownerUid) {
+  const uid = getResolvedUid(ownerUid);
   return doc(db, "users", uid, "trips", String(tripId), "itinerary", String(itemId));
 }
 
-function getPicturesCollectionRef(tripId, itemId) {
-  const uid = getCurrentUid();
+function getPicturesCollectionRef(tripId, itemId, ownerUid) {
+  const uid = getResolvedUid(ownerUid);
   return collection(
     db,
     "users",
@@ -50,8 +54,8 @@ function getPicturesCollectionRef(tripId, itemId) {
   );
 }
 
-function getPictureDocRef(tripId, itemId, pictureId) {
-  const uid = getCurrentUid();
+function getPictureDocRef(tripId, itemId, pictureId, ownerUid) {
+  const uid = getResolvedUid(ownerUid);
   return doc(
     db,
     "users",
@@ -65,8 +69,8 @@ function getPictureDocRef(tripId, itemId, pictureId) {
   );
 }
 
-function getStoragePath(tripId, itemId, pictureId, filename = "photo.jpg") {
-  const uid = getCurrentUid();
+function getStoragePath(tripId, itemId, pictureId, filename = "photo.jpg", ownerUid) {
+  const uid = getResolvedUid(ownerUid);
   const safeName = String(filename).replace(/[^\w.\-]/g, "_");
   return `users/${uid}/trips/${tripId}/itinerary/${itemId}/pictures/${pictureId}/${safeName}`;
 }
@@ -109,16 +113,16 @@ export function formatTime(date) {
   return `${displayHour}:${displayMinute} ${suffix}`;
 }
 
-export async function getTripItems(tripId) {
+export async function getTripItems(tripId, ownerUid) {
   try {
-    const snapshot = await getDocs(getItineraryCollectionRef(tripId));
+    const snapshot = await getDocs(getItineraryCollectionRef(tripId, ownerUid));
 
     const items = [];
 
     for (const itineraryDoc of snapshot.docs) {
       const itineraryData = itineraryDoc.data() || {};
       const picturesSnapshot = await getDocs(
-        getPicturesCollectionRef(tripId, itineraryDoc.id)
+        getPicturesCollectionRef(tripId, itineraryDoc.id, ownerUid)
       );
 
       const attachments = sortPicturesByCreatedAt(
@@ -139,9 +143,9 @@ export async function getTripItems(tripId) {
   }
 }
 
-export async function getTripItemById(tripId, itemId) {
+export async function getTripItemById(tripId, itemId, ownerUid) {
   try {
-    const itemRef = getItineraryItemDocRef(tripId, itemId);
+    const itemRef = getItineraryItemDocRef(tripId, itemId, ownerUid);
     const itemSnap = await getDoc(itemRef);
 
     if (!itemSnap.exists()) {
@@ -149,7 +153,9 @@ export async function getTripItemById(tripId, itemId) {
     }
 
     const itemData = itemSnap.data() || {};
-    const picturesSnapshot = await getDocs(getPicturesCollectionRef(tripId, itemId));
+    const picturesSnapshot = await getDocs(
+      getPicturesCollectionRef(tripId, itemId, ownerUid)
+    );
 
     const attachments = sortPicturesByCreatedAt(
       picturesSnapshot.docs.map(serializePictureDoc)
@@ -166,12 +172,12 @@ export async function getTripItemById(tripId, itemId) {
   }
 }
 
-export async function saveTripItems(tripId, items) {
+export async function saveTripItems(tripId, items, ownerUid) {
   try {
     const savedItems = [];
 
     for (const item of items || []) {
-      const saved = await upsertTripItem(tripId, item);
+      const saved = await upsertTripItem(tripId, item, ownerUid);
       savedItems.push(saved);
     }
 
@@ -182,10 +188,10 @@ export async function saveTripItems(tripId, items) {
   }
 }
 
-export async function upsertTripItem(tripId, item) {
+export async function upsertTripItem(tripId, item, ownerUid) {
   try {
     const itemId = item?.id ? String(item.id) : createItemId();
-    const itemRef = getItineraryItemDocRef(tripId, itemId);
+    const itemRef = getItineraryItemDocRef(tripId, itemId, ownerUid);
 
     const {
       attachments = [],
@@ -206,7 +212,9 @@ export async function upsertTripItem(tripId, item) {
 
     await setDoc(itemRef, safeItem, { merge: true });
 
-    const currentPicturesSnap = await getDocs(getPicturesCollectionRef(tripId, itemId));
+    const currentPicturesSnap = await getDocs(
+      getPicturesCollectionRef(tripId, itemId, ownerUid)
+    );
     const existingPictureIds = currentPicturesSnap.docs.map((docSnap) => docSnap.id);
     const nextPictureIds = (attachments || []).map((attachment) => String(attachment.id));
 
@@ -215,7 +223,7 @@ export async function upsertTripItem(tripId, item) {
     );
 
     for (const pictureId of pictureIdsToDelete) {
-      const pictureRef = getPictureDocRef(tripId, itemId, pictureId);
+      const pictureRef = getPictureDocRef(tripId, itemId, pictureId, ownerUid);
       const pictureSnap = await getDoc(pictureRef);
 
       if (pictureSnap.exists()) {
@@ -235,7 +243,7 @@ export async function upsertTripItem(tripId, item) {
     for (const attachment of attachments || []) {
       if (!attachment?.id) continue;
 
-      const pictureRef = getPictureDocRef(tripId, itemId, attachment.id);
+      const pictureRef = getPictureDocRef(tripId, itemId, attachment.id, ownerUid);
 
       await setDoc(
         pictureRef,
@@ -254,16 +262,18 @@ export async function upsertTripItem(tripId, item) {
       );
     }
 
-    return await getTripItemById(tripId, itemId);
+    return await getTripItemById(tripId, itemId, ownerUid);
   } catch (error) {
     console.log("upsertTripItem error:", error);
     throw error;
   }
 }
 
-export async function deleteTripItem(tripId, itemId) {
+export async function deleteTripItem(tripId, itemId, ownerUid) {
   try {
-    const picturesSnapshot = await getDocs(getPicturesCollectionRef(tripId, itemId));
+    const picturesSnapshot = await getDocs(
+      getPicturesCollectionRef(tripId, itemId, ownerUid)
+    );
 
     for (const pictureDoc of picturesSnapshot.docs) {
       const pictureData = pictureDoc.data() || {};
@@ -279,14 +289,14 @@ export async function deleteTripItem(tripId, itemId) {
       await deleteDoc(pictureDoc.ref);
     }
 
-    await deleteDoc(getItineraryItemDocRef(tripId, itemId));
+    await deleteDoc(getItineraryItemDocRef(tripId, itemId, ownerUid));
   } catch (error) {
     console.log("deleteTripItem error:", error);
     throw error;
   }
 }
 
-export async function uploadTripAttachment(tripId, itemId, attachment) {
+export async function uploadTripAttachment(tripId, itemId, attachment, ownerUid) {
   try {
     const safeItemId = itemId ? String(itemId) : createItemId();
     const pictureId = attachment?.id ? String(attachment.id) : createPictureId();
@@ -305,7 +315,7 @@ export async function uploadTripAttachment(tripId, itemId, attachment) {
       };
 
       await setDoc(
-        getPictureDocRef(tripId, safeItemId, pictureId),
+        getPictureDocRef(tripId, safeItemId, pictureId, ownerUid),
         {
           ...pictureDoc,
           updatedAt: serverTimestamp(),
@@ -322,7 +332,8 @@ export async function uploadTripAttachment(tripId, itemId, attachment) {
       tripId,
       safeItemId,
       pictureId,
-      attachment?.name || "photo.jpg"
+      attachment?.name || "photo.jpg",
+      ownerUid
     );
 
     const storageRef = ref(storage, storagePath);
@@ -340,7 +351,7 @@ export async function uploadTripAttachment(tripId, itemId, attachment) {
     };
 
     await setDoc(
-      getPictureDocRef(tripId, safeItemId, pictureId),
+      getPictureDocRef(tripId, safeItemId, pictureId, ownerUid),
       {
         ...pictureDoc,
         createdAt: serverTimestamp(),

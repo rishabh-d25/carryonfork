@@ -25,10 +25,16 @@ import worldData from "world-atlas/countries-110m.json";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
-const GREY = "#CBD5E1";
+const GREY = "#FFFFFF"; // unvisited countries now white
 const GREEN = "#22C55E";
 const BLUE = "#3F63F3";
-const DARK = "#0F172A";
+const DARK = "#1F2937";
+
+const BG = "#DCE6FF";
+const CARD = "#D4DEFF";
+const CARD_ALT = "#C9D7FF";
+const BORDER = "#B4C6FF";
+const MUTED = "#4B5563";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -302,16 +308,16 @@ function ProgressRing({
     >
       <View style={styles.ringWrap}>
         <Svg width={size} height={size} style={{ transform: [{ rotate: "-90deg" }] }}>
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke="#D7DEE8"
-            strokeWidth={strokeWidth}
-            fill="none"
-            strokeDasharray="5 7"
-            strokeLinecap="round"
-          />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#FFFFFF" // was gray → now white
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray="5 7"
+          strokeLinecap="round"
+        />
 
           <AnimatedCircle
             cx={size / 2}
@@ -795,11 +801,11 @@ export default function TravelHistory() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: BG,
   },
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: BG,
     paddingHorizontal: 18,
   },
 
@@ -815,6 +821,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: CARD_ALT,
+    borderWidth: 1,
+    borderColor: BORDER,
   },
 
   header: {
@@ -824,12 +833,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "800",
-    color: DARK,
+    color: BLUE,
   },
   subtitle: {
     marginTop: 6,
     fontSize: 14,
-    color: "rgba(15,23,42,0.65)",
+    color: MUTED,
   },
 
   loadingWrap: {
@@ -841,18 +850,18 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 14,
-    color: "rgba(15,23,42,0.65)",
+    color: MUTED,
   },
 
   mapWrap: {
     marginBottom: 16,
   },
   mapCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD,
     borderRadius: 18,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: BORDER,
   },
   mapTopRow: {
     flexDirection: "row",
@@ -862,7 +871,8 @@ const styles = StyleSheet.create({
   },
   mapTitle: {
     fontSize: 13,
-    color: "rgba(15,23,42,0.7)",
+    fontWeight: "600",
+    color: BLUE,
   },
   savingText: {
     fontSize: 12,
@@ -879,10 +889,10 @@ const styles = StyleSheet.create({
   },
   ringCard: {
     width: "48%",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: BORDER,
     paddingVertical: 16,
     paddingHorizontal: 12,
     alignItems: "center",
@@ -912,7 +922,7 @@ const styles = StyleSheet.create({
   ringHint: {
     marginTop: 4,
     fontSize: 11,
-    color: "rgba(15,23,42,0.58)",
+    color: MUTED,
     textAlign: "center",
   },
   tapHint: {
@@ -924,17 +934,19 @@ const styles = StyleSheet.create({
 
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(2,6,23,0.5)",
+    backgroundColor: "rgba(15,23,42,0.35)",
     justifyContent: "flex-end",
   },
   modalCard: {
     height: "82%",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: BG,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
   },
   modalHeader: {
     flexDirection: "row",
@@ -945,19 +957,19 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: "900",
-    color: DARK,
+    color: BLUE,
   },
   modalClose: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#2563EB",
+    color: BLUE,
   },
 
   search: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: BORDER,
     paddingVertical: 12,
     paddingHorizontal: 12,
     marginBottom: 10,
@@ -972,7 +984,7 @@ const styles = StyleSheet.create({
   },
   modalMeta: {
     fontSize: 13,
-    color: "rgba(15,23,42,0.6)",
+    color: MUTED,
   },
   modalMetaStrong: {
     fontWeight: "900",
@@ -987,23 +999,25 @@ const styles = StyleSheet.create({
   countryRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: CARD,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: BORDER,
     marginBottom: 8,
   },
   countryRowChecked: {
     borderColor: "rgba(34,197,94,0.45)",
+    backgroundColor: CARD_ALT,
   },
   checkbox: {
     width: 22,
     height: 22,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: "#CBD5E1",
+    borderColor: "#FFFFFF",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
@@ -1025,20 +1039,20 @@ const styles = StyleSheet.create({
 
   promptBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(2,6,23,0.38)",
+    backgroundColor: "rgba(15,23,42,0.35)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 18,
   },
   promptCard: {
     width: "100%",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: BG,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 14,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: BORDER,
   },
   promptHeader: {
     flexDirection: "row",
@@ -1048,13 +1062,13 @@ const styles = StyleSheet.create({
   promptTitle: {
     fontSize: 18,
     fontWeight: "900",
-    color: DARK,
+    color: BLUE,
   },
   promptSubtitle: {
     marginTop: 8,
     marginBottom: 14,
     fontSize: 13,
-    color: "rgba(15,23,42,0.62)",
+    color: MUTED,
   },
   wonderList: {
     gap: 8,
@@ -1066,12 +1080,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    backgroundColor: "#F8FAFC",
+    borderColor: BORDER,
+    backgroundColor: CARD,
   },
   wonderRowChecked: {
     borderColor: "rgba(139,92,246,0.35)",
-    backgroundColor: "rgba(139,92,246,0.08)",
+    backgroundColor: "rgba(139,92,246,0.12)",
   },
   wonderText: {
     flex: 1,
@@ -1082,7 +1096,7 @@ const styles = StyleSheet.create({
   promptMeta: {
     marginTop: 14,
     fontSize: 13,
-    color: "rgba(15,23,42,0.62)",
+    color: MUTED,
   },
   promptMetaStrong: {
     fontWeight: "900",

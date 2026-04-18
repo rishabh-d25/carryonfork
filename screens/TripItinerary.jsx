@@ -11,12 +11,21 @@ import {
   Text,
   View,
 } from "react-native";
-import { getTripItems } from "../utils/tripStorage";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+} from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
-const BG = "#F7F7F7";
-const BORDER = "#DADADA";
-const TEXT = "#1F1F1F";
-const BLUE = "#4967E8";
+const BG = "#DCE6FF";
+const BORDER = "#B4C6FF";
+const TEXT = "#1F2937";
+const BLUE = "#3F63F3";
 
 const MONTH_ORDER = {
   Jan: 0,
@@ -56,27 +65,175 @@ function getFirstImage(item) {
   );
 }
 
+async function loadAttachmentsForItems(ownerId, tripId, baseItems) {
+  const itemsWithAttachments = await Promise.all(
+    (baseItems || []).map(async (item) => {
+      try {
+        const picturesRef = collection(
+          db,
+          "users",
+          ownerId,
+          "trips",
+          tripId,
+          "itinerary",
+          String(item.id),
+          "pictures"
+        );
+
+        const picturesSnap = await getDocs(picturesRef);
+
+        const attachments = picturesSnap.docs
+          .map((pictureDoc) => ({
+            id: pictureDoc.id,
+            ...pictureDoc.data(),
+          }))
+          .sort((a, b) => {
+            const aSeconds = a?.createdAt?.seconds || 0;
+            const bSeconds = b?.createdAt?.seconds || 0;
+            return aSeconds - bSeconds;
+          });
+
+        return {
+          ...item,
+          attachments,
+        };
+      } catch (error) {
+        console.log("loadAttachmentsForItems item error:", error);
+        return {
+          ...item,
+          attachments: [],
+        };
+      }
+    })
+  );
+
+  return itemsWithAttachments;
+}
+
 export default function TripItinerary() {
   const router = useRouter();
-  const { tripId } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+
+  const tripId = String(params.tripId || "");
+  const paramSourceTripId = params.sourceTripId
+    ? String(params.sourceTripId)
+    : "";
+  const paramSourceTripOwnerId = params.sourceTripOwnerId
+    ? String(params.sourceTripOwnerId)
+    : "";
+
   const [items, setItems] = useState([]);
+  const [sourceTripOwnerId, setSourceTripOwnerId] = useState("");
+  const [sourceTripId, setSourceTripId] = useState("");
 
-  const loadItems = useCallback(async () => {
-    if (!tripId) return;
+  const subscribeToItems = useCallback(() => {
+    if (!tripId || !auth.currentUser?.uid) return () => {};
 
-    try {
-      const storedItems = await getTripItems(String(tripId));
-      setItems(Array.isArray(storedItems) ? storedItems : []);
-    } catch (error) {
-      console.log("loadItems error:", error);
-      setItems([]);
-    }
-  }, [tripId]);
+    let unsubscribeSnapshot = null;
+    let cancelled = false;
+
+    const start = async () => {
+      try {
+        const currentUid = auth.currentUser.uid;
+
+        // ✅ FIRST trust the params coming back from AddActivity / details screens
+        let resolvedOwnerId = paramSourceTripOwnerId || currentUid;
+        let resolvedTripId = paramSourceTripId || tripId;
+
+        // ✅ Only fall back to trip-doc lookup if params were not provided
+        if (!paramSourceTripOwnerId || !paramSourceTripId) {
+          const myTripRef = doc(db, "users", currentUid, "trips", tripId);
+          const myTripSnap = await getDoc(myTripRef);
+
+          if (myTripSnap.exists()) {
+            const myTripData = myTripSnap.data() || {};
+
+            if (
+              myTripData.isSharedTrip &&
+              myTripData.sharedTripOwnerId &&
+              myTripData.sharedTripId
+            ) {
+              resolvedOwnerId = String(myTripData.sharedTripOwnerId);
+              resolvedTripId = String(myTripData.sharedTripId);
+            } else if (
+              myTripData.acceptedFromInvite &&
+              myTripData.tripOwnerId &&
+              myTripData.originalTripId
+            ) {
+              resolvedOwnerId = String(myTripData.tripOwnerId);
+              resolvedTripId = String(myTripData.originalTripId);
+            }
+          }
+        }
+
+        if (!cancelled) {
+          setSourceTripOwnerId(resolvedOwnerId);
+          setSourceTripId(resolvedTripId);
+        }
+
+        const itineraryRef = collection(
+          db,
+          "users",
+          resolvedOwnerId,
+          "trips",
+          resolvedTripId,
+          "itinerary"
+        );
+
+        const itineraryQuery = query(itineraryRef, orderBy("createdAt", "asc"));
+
+        unsubscribeSnapshot = onSnapshot(
+          itineraryQuery,
+          async (snapshot) => {
+            if (cancelled) return;
+
+            const baseItems = snapshot.docs.map((itemDoc) => ({
+              id: itemDoc.id,
+              ...itemDoc.data(),
+            }));
+
+            const nextItems = await loadAttachmentsForItems(
+              resolvedOwnerId,
+              resolvedTripId,
+              baseItems
+            );
+
+            if (!cancelled) {
+              setItems(nextItems);
+            }
+          },
+          (error) => {
+            console.log("Trip itinerary snapshot error:", error);
+            if (!cancelled) {
+              setItems([]);
+            }
+          }
+        );
+      } catch (error) {
+        console.log("loadItems error:", error);
+        if (!cancelled) {
+          setItems([]);
+          setSourceTripOwnerId(paramSourceTripOwnerId || auth.currentUser?.uid || "");
+          setSourceTripId(paramSourceTripId || tripId);
+        }
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      if (unsubscribeSnapshot) unsubscribeSnapshot();
+    };
+  }, [tripId, paramSourceTripId, paramSourceTripOwnerId]);
 
   useFocusEffect(
     useCallback(() => {
-      loadItems();
-    }, [loadItems])
+      const cleanup = subscribeToItems();
+      return () => {
+        if (cleanup) cleanup();
+      };
+    }, [subscribeToItems])
   );
 
   const sortedItems = useMemo(() => {
@@ -84,7 +241,8 @@ export default function TripItinerary() {
       const yearDiff = (a.year || 0) - (b.year || 0);
       if (yearDiff !== 0) return yearDiff;
 
-      const monthDiff = (MONTH_ORDER[a.month] ?? 0) - (MONTH_ORDER[b.month] ?? 0);
+      const monthDiff =
+        (MONTH_ORDER[a.month] ?? 0) - (MONTH_ORDER[b.month] ?? 0);
       if (monthDiff !== 0) return monthDiff;
 
       const dayDiff = (a.day || 0) - (b.day || 0);
@@ -106,10 +264,18 @@ export default function TripItinerary() {
     return Object.entries(groups);
   }, [sortedItems]);
 
+  const resolvedOwnerForNav =
+    paramSourceTripOwnerId || sourceTripOwnerId || auth.currentUser?.uid || "";
+  const resolvedTripForNav =
+    paramSourceTripId || sourceTripId || tripId;
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <StatusBar barStyle="dark-content" backgroundColor={BG} />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} style={styles.headerIcon}>
             <Ionicons name="chevron-back" size={24} color={TEXT} />
@@ -121,7 +287,11 @@ export default function TripItinerary() {
             onPress={() =>
               router.push({
                 pathname: "/addactivity",
-                params: { tripId: String(tripId) },
+                params: {
+                  tripId: String(tripId),
+                  sourceTripId: String(resolvedTripForNav),
+                  sourceTripOwnerId: String(resolvedOwnerForNav),
+                },
               })
             }
             style={styles.headerIcon}
@@ -156,6 +326,8 @@ export default function TripItinerary() {
                         params: {
                           tripId: String(tripId),
                           itemId: String(item.id),
+                          sourceTripId: String(resolvedTripForNav),
+                          sourceTripOwnerId: String(resolvedOwnerForNav),
                         },
                       });
                     }}
@@ -171,7 +343,11 @@ export default function TripItinerary() {
                         </Text>
                       </View>
 
-                      <Ionicons name="chevron-forward" size={20} color="#8A8A8A" />
+                      <Ionicons
+                        name="chevron-forward"
+                        size={20}
+                        color="#6B7280"
+                      />
                     </View>
 
                     {firstImage ? (
@@ -186,18 +362,30 @@ export default function TripItinerary() {
 
                     {!!item.location && (
                       <View style={styles.detailRow}>
-                        <Ionicons name="location-outline" size={16} color="#777" />
+                        <Ionicons
+                          name="location-outline"
+                          size={16}
+                          color="#6B7280"
+                        />
                         <Text style={styles.detailText}>{item.location}</Text>
                       </View>
                     )}
 
                     <View style={styles.bottomRow}>
-                      <Text style={styles.priceText}>${Number(item.price ?? 0)}</Text>
+                      <Text style={styles.priceText}>
+                        ${Number(item.price ?? 0)}
+                      </Text>
 
                       {attachmentCount > 0 ? (
                         <View style={styles.attachmentBadge}>
-                          <Ionicons name="camera-outline" size={14} color={BLUE} />
-                          <Text style={styles.attachmentBadgeText}>{attachmentCount}</Text>
+                          <Ionicons
+                            name="camera-outline"
+                            size={14}
+                            color={BLUE}
+                          />
+                          <Text style={styles.attachmentBadgeText}>
+                            {attachmentCount}
+                          </Text>
                         </View>
                       ) : null}
                     </View>
@@ -213,9 +401,9 @@ export default function TripItinerary() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { 
-    flex: 1, 
-    backgroundColor: "#DCE6FF" 
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#DCE6FF",
   },
 
   scrollContent: {
@@ -283,7 +471,7 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    backgroundColor: "#D4DEFF", // layered card color
+    backgroundColor: "#D4DEFF",
     borderWidth: 1,
     borderColor: "#B4C6FF",
     borderRadius: 16,
