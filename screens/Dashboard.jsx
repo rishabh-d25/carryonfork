@@ -1,8 +1,8 @@
-import { Ionicons } from "@expo/vector-icons";
 import {
-  useFonts,
   CinzelDecorative_700Bold,
+  useFonts,
 } from "@expo-google-fonts/cinzel-decorative";
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { getAuth } from "firebase/auth";
 import { collection, getDocs } from "firebase/firestore";
@@ -225,7 +225,7 @@ export default function Dashboard() {
       pathname: "/maintrip",
       params: {
         tripId: trip.id,
-        title: trip.title || trip.location || "Trip",
+        title: trip.title || trip.location?.city || trip.location?.country || "Trip",
       },
     });
   };
@@ -289,7 +289,7 @@ export default function Dashboard() {
               >
                 <View style={styles.heroLabelButton}>
                   <Text style={styles.heroLabelText}>
-                    {mainTrip.title || mainTrip.location || "Trip"}
+                    {mainTrip.title || mainTrip.location?.city || mainTrip.location?.country || "Trip"}
                   </Text>
                   {!!getTripDateRange(mainTrip) && (
                     <Text style={styles.heroDateText}>
@@ -306,7 +306,7 @@ export default function Dashboard() {
               >
                 <View style={styles.heroLabelButton}>
                   <Text style={styles.heroLabelText}>
-                    {mainTrip.title || mainTrip.location || "Trip"}
+                    {mainTrip.title || mainTrip.location?.city || mainTrip.location?.country || "Trip"}
                   </Text>
                   {!!getTripDateRange(mainTrip) && (
                     <Text style={styles.heroDateText}>
@@ -370,7 +370,7 @@ export default function Dashboard() {
 
                   <View style={styles.tripCardBody}>
                     <Text style={styles.tripCardTitle} numberOfLines={1}>
-                      {trip.title || trip.location || "Trip"}
+                      {trip.title || trip.location?.city || trip.location?.country || "Trip"}
                     </Text>
 
                     {!!getTripDateRange(trip) && (
@@ -385,9 +385,9 @@ export default function Dashboard() {
                       </Text>
                     )}
 
-                    {!!trip.location && trip.title !== trip.location && (
+                    {!!trip.location?.city && trip.title !== trip.location.city && (
                       <Text style={styles.tripCardMeta} numberOfLines={1}>
-                        {trip.location}
+                        {trip.location.city}, {trip.location.country}
                       </Text>
                     )}
                   </View>

@@ -1,19 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { db } from "../firebaseConfig";
+import { deleteDoc, doc, getDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
 const API_KEY = "252b650d2acb4397ab93916025da875e";
+
+const BLUE = "#3F63F3";
+const BG = "#DCE6FF";
+const BORDER = "#B4C6FF";
+const TEXT = "#1F2937";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams();
-
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   const [street, setStreet] = useState("");
   const [city, setCity] = useState("");
@@ -38,59 +41,48 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     if (!userId) return;
-
     (async () => {
       const userdoc = await getDoc(doc(db, "users", userId));
-        const loc = userdoc.data()?.location;
-
-        if (loc) {
-          setStreet(loc.street);
-          setCity(loc.city);
-          setState(loc.state);
-          setZip(loc.zip);
-
-          if (loc.latitude && loc.longitude) {
-            updateMap(loc.latitude, loc.longitude);
-          }
+      const loc = userdoc.data()?.location;
+      if (loc) {
+        setStreet(loc.street);
+        setCity(loc.city);
+        setState(loc.state);
+        setZip(loc.zip);
+        if (loc.latitude && loc.longitude) {
+          updateMap(loc.latitude, loc.longitude);
         }
+      }
     })();
   }, [userId]);
 
-
   const geocode = async () => {
     if (!address) return;
-
     const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${API_KEY}`);
-      const data = await res.json();
-
-      const loc = data.results?.[0]?.geometry;
-      if (loc) updateMap(loc.lat, loc.lng);
+    const data = await res.json();
+    const loc = data.results?.[0]?.geometry;
+    if (loc) updateMap(loc.lat, loc.lng);
   };
 
   const reverseGeocode = async (lat, lng) => {
     const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${API_KEY}`);
-      const data = await res.json();
-
-      const mapaddress = data.results?.[0]?.components;
-      if (!mapaddress) return;
-
-      setStreet(mapaddress.road );
-      setCity(mapaddress.city || mapaddress.town || mapaddress.village);
-      setState(mapaddress.state);
-      setZip(mapaddress.postcode);
+    const data = await res.json();
+    const mapaddress = data.results?.[0]?.components;
+    if (!mapaddress) return;
+    setStreet(mapaddress.road);
+    setCity(mapaddress.city || mapaddress.town || mapaddress.village);
+    setState(mapaddress.state);
+    setZip(mapaddress.postcode);
   };
 
-  
   const onMapPress = (e) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
     updateMap(latitude, longitude);
     reverseGeocode(latitude, longitude);
   };
 
-  
   const saveLocation = async () => {
     if (!userId) return;
-
     try {
       await updateDoc(doc(db, "users", userId), {
         location: {
@@ -102,37 +94,63 @@ export default function SettingsScreen() {
           longitude: marker.longitude,
         },
       });
-
-      alert("Saved!");
+      Alert.alert("Saved!", "Your location has been saved.");
     } catch (e) {
       console.log(e);
-      alert("Error saving");
+      Alert.alert("Error saving");
     }
   };
 
+  const deleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "Are you sure you want to permanently delete your account? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, "users", userId));
+              await auth.currentUser?.delete();
+              router.replace("/");
+            } catch (e) {
+              console.log(e);
+              Alert.alert("Error", "Could not delete account. You may need to re-login first.");
+            }
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <View style={styles.container}>
       <View style={styles.topRow}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+          <Ionicons name="chevron-back" size={24} color={TEXT} />
         </TouchableOpacity>
         <Text style={styles.title}>Settings</Text>
-        <View style={{ width: 24 }} />
+        <View style={{ width: 36 }} />
       </View>
 
-      <View style={styles.row}>
-        <Text style={styles.label}>Notifications</Text>
-        <Switch value={notificationsEnabled} onValueChange={setNotificationsEnabled} />
-      </View>
-
-      {[{ label: "Street", val: street, set: setStreet },
+      {[
+        { label: "Street", val: street, set: setStreet },
         { label: "City", val: city, set: setCity },
         { label: "State", val: state, set: setState },
-        { label: "ZIP", val: zip, set: setZip }].map((f, i) => (
-        <View key={i}>
+        { label: "ZIP", val: zip, set: setZip },
+      ].map((f) => (
+        <View key={f.label}>
           <Text style={styles.label}>{f.label}</Text>
-          <TextInput style={styles.input} value={f.val} onChangeText={f.set} keyboardType={f.label === "ZIP" ? "numeric" : "default"} />
+          <TextInput
+            style={styles.input}
+            value={f.val}
+            onChangeText={f.set}
+            keyboardType={f.label === "ZIP" ? "numeric" : "default"}
+            placeholderTextColor="#B8B8B8"
+            placeholder={f.label}
+          />
         </View>
       ))}
 
@@ -149,6 +167,10 @@ export default function SettingsScreen() {
           <Marker coordinate={marker} />
         </MapView>
       </View>
+
+      <TouchableOpacity style={styles.deleteBtn} onPress={deleteAccount}>
+        <Text style={styles.deleteBtnText}>Delete Account</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -156,36 +178,82 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: BG,
     padding: 16,
     paddingTop: 50,
   },
-  center: { justifyContent: "center", alignItems: "center" },
-
-  topRow: { paddingTop: 50, flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  title: { fontSize: 16, fontWeight: "700" },
-
-  row: { paddingTop: 20, flexDirection: "row", justifyContent: "space-between", marginBottom: 20 },
-  label: { color: "#007BFF", marginBottom: 5 },
-
-  input: {
-    borderWidth: 1,
-    borderColor: "#007BFF",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
+  topRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
   },
-
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#C9D7FF",
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: BLUE,
+  },
+  label: {
+    fontSize: 15,
+    color: TEXT,
+    marginBottom: 10,
+    fontWeight: "600",
+  },
+  input: {
+    height: 52,
+    borderWidth: 1.5,
+    borderColor: "#9FB2FF",
+    borderRadius: 12,
+    backgroundColor: "#EEF2FF",
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: TEXT,
+    marginBottom: 14,
+  },
   button: {
-    backgroundColor: "#007BFF",
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: BLUE,
+    padding: 14,
+    borderRadius: 12,
     alignItems: "center",
     marginBottom: 10,
   },
-  save: { backgroundColor: "#0056D2" },
-  btnText: { color: "#fff", fontWeight: "bold" },
-
-  mapWrap: { flex: 1, borderRadius: 12, overflow: "hidden" },
+  save: {
+    backgroundColor: "#5A75F5",
+  },
+  btnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  mapWrap: {
+    flex: 1,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
   map: { flex: 1 },
+  deleteBtn: {
+    backgroundColor: "#DC2626",
+    padding: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  deleteBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
 });

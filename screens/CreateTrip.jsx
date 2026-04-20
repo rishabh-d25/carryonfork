@@ -24,7 +24,8 @@ export default function CreateTrip() {
   const [withGroup, setWithGroup] = useState(true);
   const [budget, setBudget] = useState("");
   const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
+  const [locationCity, setLocationCity] = useState("");
+  const [locationCountry, setLocationCountry] = useState("");
 
   const [startMonth, setStartMonth] = useState("");
   const [startDay, setStartDay] = useState("");
@@ -51,11 +52,14 @@ export default function CreateTrip() {
 
     try {
 
-      const tripTitle = location.trim();
+      const tripTitle = `${locationCity.trim()}, ${locationCountry.trim()}`;
 
       const tripData = {
         title: tripTitle,
-        location: location.trim(),
+        location: {
+          city: locationCity.trim(),
+          country: locationCountry.trim(),
+        },
         description: description.trim(),
         budget: parseFloat(budget),
         withGroup,
@@ -151,16 +155,22 @@ export default function CreateTrip() {
 
         <View style={styles.section}>
           <Text style={styles.label}>Location</Text>
-          <View style={styles.searchRow}>
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              placeholder="Search for location"
-              placeholderTextColor="#aaa"
-              value={location}
-              onChangeText={setLocation}
-            />
-            <Text style={styles.searchIcon}>🔍</Text>
-          </View>
+
+          <TextInput
+            style={styles.input}
+            placeholder="City"
+            placeholderTextColor="#aaa"
+            value={locationCity}
+            onChangeText={setLocationCity}
+          />
+
+          <TextInput
+            style={styles.input}
+            placeholder="Country"
+            placeholderTextColor="#aaa"
+            value={locationCountry}
+            onChangeText={setLocationCountry}
+          />
         </View>
 
         <View style={styles.section}>

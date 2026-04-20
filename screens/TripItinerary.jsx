@@ -1,5 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+} from "firebase/firestore";
 import { useCallback, useMemo, useState } from "react";
 import {
   Image,
@@ -11,15 +20,6 @@ import {
   Text,
   View,
 } from "react-native";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-} from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
 const BG = "#DCE6FF";
@@ -374,12 +374,17 @@ export default function TripItinerary() {
 
                     {!!item.location && (
                       <View style={styles.detailRow}>
-                        <Ionicons
-                          name="location-outline"
-                          size={16}
-                          color="#6B7280"
-                        />
-                        <Text style={styles.detailText}>{item.location}</Text>
+                        <Ionicons name="location-outline" size={16} color="#6B7280" />
+                        <Text style={styles.detailText}>
+                          {[
+                            item.location.street,
+                            item.location.city,
+                            item.location.state,
+                            item.location.zip,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </Text>
                       </View>
                     )}
 

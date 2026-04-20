@@ -1,14 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Animated, Keyboard, Linking, Platform,
-  SafeAreaView, ScrollView, StyleSheet, Text, TextInput,
+  Platform, SafeAreaView, ScrollView, StyleSheet, Text,
   TouchableOpacity, View,
 } from "react-native";
 import { auth, db } from "../firebaseConfig";
-
 
 const WMO = {
   0:["Clear sky","sunny-outline"], 1:["Mainly clear","partly-sunny-outline"],
@@ -21,93 +19,200 @@ const WMO = {
   85:["Snow showers","snow-outline"], 95:["Thunderstorm","thunderstorm-outline"],
   99:["Severe storm","thunderstorm-outline"],
 };
-const wmo = (code) => { const k = Object.keys(WMO).map(Number).sort((a,b)=>b-a).find(k=>code>=k)??0; return WMO[k]??["Unknown","help-outline"]; };
-
-let _id = 0;
-const item = (label) => ({ id: String(++_id), label, checked: false });
-const makeDocItems = (country) => [
-  item(`Check visa requirements for ${country||"destination"}`),
-  item("Ensure passport is valid 6+ months beyond return date"),
-  item("Apply for visa / eVisa if required"),
-  item("Make 2 copies of passport, visa, and bookings"),
-  item("Save embassy phone number in contacts"),
-];
-
-const SECTIONS = {
-  documents:    { title: "DOCUMENTS & VISA",  icon: "document-text-outline", checklist: true },
-  essentials:   { title: "ESSENTIALS",         icon: "bag-outline",           checklist: true },
-  reservations: { title: "RESERVATIONS",       icon: "calendar-outline",      checklist: true },
-  health:       { title: "HEALTH & SAFETY",    icon: "medical-outline",       checklist: true },
-  weather:      { title: "WEATHER FORECAST",   icon: "partly-sunny-outline",  checklist: false },
-  flights:      { title: "FIND FLIGHTS",       icon: "airplane-outline",      checklist: false },
+const wmo = (code) => {
+  const k = Object.keys(WMO).map(Number).sort((a, b) => b - a).find(k => code >= k) ?? 0;
+  return WMO[k] ?? ["Unknown", "help-outline"];
 };
+
+const item = (label, id) => ({ id, label, checked: false });
+
+const makeDocItems = (country) => [
+  item(`Check visa requirements for ${country || "destination"}`, "doc_1"),
+  item("Ensure passport is valid 6+ months beyond return date", "doc_2"),
+  item("Apply for visa / eVisa if required", "doc_3"),
+  item("Make 2 copies of passport, visa, and bookings", "doc_4"),
+  item("Save embassy phone number in contacts", "doc_5"),
+];
 
 const DEFAULT_LISTS = {
   documents: makeDocItems(""),
   essentials: [
-    item("Pack power adapter / voltage converter"),
-    item("Download offline maps (Google Maps / Maps.me)"),
-    item("Set up international roaming or buy local SIM"),
-    item("Notify your bank of travel dates"),
-    item("Pack travel-size toiletries"),
-    item("Bring sufficient local currency / card"),
-    item("Pack medication + doctor's letter if needed"),
-    item("Emergency contacts written down offline"),
+    item("Pack power adapter / voltage converter", "ess_1"),
+    item("Download offline maps (Google Maps / Maps.me)", "ess_2"),
+    item("Set up international roaming or buy local SIM", "ess_3"),
+    item("Notify your bank of travel dates", "ess_4"),
+    item("Pack travel-size toiletries", "ess_5"),
+    item("Bring sufficient local currency / card", "ess_6"),
+    item("Pack medication + doctor's letter if needed", "ess_7"),
+    item("Emergency contacts written down offline", "ess_8"),
   ],
   reservations: [
-    item("Flights booked & confirmation saved"),
-    item("Accommodation booked for all nights"),
-    item("Airport transfers arranged"),
-    item("Travel insurance purchased"),
-    item("Tours / activities pre-booked"),
-    item("Check-in online (24h before flight)"),
+    item("Flights booked & confirmation saved", "res_1"),
+    item("Accommodation booked for all nights", "res_2"),
+    item("Airport transfers arranged", "res_3"),
+    item("Travel insurance purchased", "res_4"),
+    item("Tours / activities pre-booked", "res_5"),
+    item("Check-in online (24h before flight)", "res_6"),
   ],
   health: [
-    item("Check CDC destination health notices"),
-    item("Visit travel clinic for vaccinations"),
-    item("Purchase travel health insurance"),
-    item("Research nearest hospitals at destination"),
-    item("Pack first aid kit"),
-    item("Know local emergency number"),
+    item("Check CDC destination health notices", "hea_1"),
+    item("Visit travel clinic for vaccinations", "hea_2"),
+    item("Purchase travel health insurance", "hea_3"),
+    item("Research nearest hospitals at destination", "hea_4"),
+    item("Pack first aid kit", "hea_5"),
+    item("Know local emergency number", "hea_6"),
   ],
+};
+
+const SECTIONS = {
+  documents:    { title: "DOCUMENTS & VISA", icon: "document-text-outline" },
+  essentials:   { title: "ESSENTIALS",        icon: "bag-outline" },
+  reservations: { title: "RESERVATIONS",      icon: "calendar-outline" },
+  health:       { title: "HEALTH & SAFETY",   icon: "medical-outline" },
+  weather:      { title: "WEATHER FORECAST",  icon: "partly-sunny-outline", noChecklist: true },
 };
 
 export default function BeforeYouTravel() {
   const router = useRouter();
   const { tripId } = useLocalSearchParams();
 
-  const [cityInput, setCityInput] = useState("");
-  const [countryInput, setCountryInput] = useState("");
   const [destination, setDestination] = useState(null);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [countryData, setCountryData] = useState(null);
   const [localTime, setLocalTime] = useState(null);
   const [weather, setWeather] = useState(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-  const [openKey, setOpenKey] = useState("documents");
   const [lists, setLists] = useState(DEFAULT_LISTS);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [openKey, setOpenKey] = useState("documents");
+  const [preparationLoaded, setPreparationLoaded] = useState(false);
 
+  // Load trip data + saved checklist in one effect to avoid race condition
   useEffect(() => {
-    Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
     const user = auth.currentUser;
     if (!user || !tripId) return;
-    getDoc(doc(db, "users", user.uid, "trips", String(tripId))).then((snap) => {
-      if (!snap.exists()) return;
+
+    (async () => {
+      const snap = await getDoc(doc(db, "users", user.uid, "trips", String(tripId)));
+      if (!snap.exists()) { setPreparationLoaded(true); return; }
       const d = snap.data();
-      if (d.startDate) setStartDate(d.startDate.toDate());
-      if (d.endDate) setEndDate(d.endDate.toDate());
-    });
+      const tripStart = d.startDate ? d.startDate.toDate() : null;
+      const tripEnd   = d.endDate   ? d.endDate.toDate()   : null;
+      if (tripStart) setStartDate(tripStart);
+      if (tripEnd)   setEndDate(tripEnd);
+
+      const city    = typeof d.location?.city    === "string" ? d.location.city.trim()    : "";
+      const country = typeof d.location?.country === "string" ? d.location.country.trim() : "";
+
+      // Geocode
+      let lat, lon, countryCode, cData = null;
+      if (city && country) {
+        const geoData = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`${city}, ${country}`)}&format=json&limit=1&addressdetails=1`,
+          { headers: { "User-Agent": "CarryOnTravelApp/1.0" } }
+        ).then(r => r.json()).catch(() => []);
+
+        if (geoData.length) {
+          lat = parseFloat(geoData[0].lat);
+          lon = parseFloat(geoData[0].lon);
+          countryCode = geoData[0].address?.country_code?.toUpperCase() || "";
+
+          // Country info
+          try {
+            const c = await fetch(`https://restcountries.com/v3.1/alpha/${countryCode}`).then(r => r.json()).then(j => j[0]);
+            cData = {
+              name: c.name?.common || country,
+              languages: Object.values(c.languages || {}).slice(0, 3).join(", ") || "—",
+              callingCode: c.idd?.root ? `${c.idd.root}${(c.idd.suffixes || [])[0] || ""}` : "—",
+            };
+          } catch (_) {}
+
+          // Local time
+          try {
+            const tz = await fetch(`https://timeapi.io/api/time/current/coordinate?latitude=${lat}&longitude=${lon}`).then(r => r.json());
+            if (tz.dateTime) setLocalTime({
+              time: new Date(tz.dateTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
+              date: new Date(tz.dateTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+              timezone: tz.timeZone || "—",
+              offset: tz.utcOffset || "—",
+            });
+          } catch (_) {}
+
+          // Weather
+          try {
+            const now = new Date(); now.setHours(0, 0, 0, 0);
+            const s = tripStart ? new Date(new Date(tripStart).setHours(0, 0, 0, 0)) : null;
+            const e = tripEnd   ? new Date(new Date(tripEnd).setHours(0, 0, 0, 0))   : null;
+            const daysToStart = s ? Math.floor((s - now) / 86400000) : null;
+            const daysToEnd   = e ? Math.floor((e - now) / 86400000) : null;
+            if (daysToStart !== null && daysToStart <= 16 && (daysToEnd === null || daysToEnd >= 0)) {
+              const tripLen = e && s ? Math.ceil((e - s) / 86400000) + 1 : 7;
+              const days = Math.min(Math.max(daysToStart, 0) + tripLen, 16);
+              const w = await fetch(
+                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum&temperature_unit=fahrenheit&timezone=auto&forecast_days=${days}`
+              ).then(r => r.json());
+              if (w.daily) {
+                const idxs = w.daily.time.map((d, i) => {
+                  const date = new Date(d + "T12:00:00"); date.setHours(0, 0, 0, 0);
+                  return (!s || date >= s) && (!e || date <= e) ? i : null;
+                }).filter(i => i !== null);
+                if (idxs.length) setWeather({
+                  time:               idxs.map(i => w.daily.time[i]),
+                  temperature_2m_max: idxs.map(i => w.daily.temperature_2m_max[i]),
+                  temperature_2m_min: idxs.map(i => w.daily.temperature_2m_min[i]),
+                  weathercode:        idxs.map(i => w.daily.weathercode[i]),
+                  precipitation_sum:  idxs.map(i => w.daily.precipitation_sum[i]),
+                });
+              }
+            }
+          } catch (_) {}
+
+          setCountryData(cData);
+          setDestination({ city, country: cData?.name || country });
+        }
+      }
+
+      // Build the final document items with the resolved country name,
+      // then apply saved checklist state on top — all in one setLists call
+      const finalDocItems = makeDocItems(cData?.name || country || "");
+      const checkSnap = await getDoc(doc(db, "users", user.uid, "trips", String(tripId), "preparation", "checklist")).catch(() => null);
+      const saved = checkSnap?.exists() ? checkSnap.data() : {};
+
+      setLists(prev => {
+        const base = { ...prev, documents: finalDocItems };
+        const updated = {};
+        Object.keys(base).forEach(k => {
+          updated[k] = base[k].map(i => ({ ...i, checked: saved[i.id] === true }));
+        });
+        return updated;
+      });
+
+      setPreparationLoaded(true);
+    })();
   }, [tripId]);
 
-  
+  // Save checklist to Firebase on every change
+  useEffect(() => {
+    if (!preparationLoaded) return;
+    const user = auth.currentUser;
+    if (!user || !tripId) return;
+    const checkedMap = {};
+    let totalDone = 0, totalItems = 0;
+    Object.values(lists).forEach(section => section.forEach(i => {
+      checkedMap[i.id] = i.checked;
+      totalItems++;
+      if (i.checked) totalDone++;
+    }));
+    setDoc(
+      doc(db, "users", user.uid, "trips", String(tripId), "preparation", "checklist"),
+      { ...checkedMap, _totalDone: totalDone, _totalItems: totalItems },
+      { merge: true }
+    );
+  }, [lists, preparationLoaded]);
+
   const daysUntil = useMemo(() => {
     if (!startDate) return null;
-    const now = new Date(); now.setHours(0,0,0,0);
-    const s = new Date(startDate); s.setHours(0,0,0,0);
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const s = new Date(startDate); s.setHours(0, 0, 0, 0);
     return Math.max(Math.floor((s - now) / 86400000), 0);
   }, [startDate]);
 
@@ -117,92 +222,12 @@ export default function BeforeYouTravel() {
     return { tasksDone: done, tasksTotal: total };
   }, [lists]);
 
-  async function handleSearch() {
-    const city = cityInput.trim(), country = countryInput.trim();
-    if (!city || !country) { setSearchError("Please enter both a city and a country."); return; }
-    setSearchError(""); setSearching(true); Keyboard.dismiss();
-
-    try {
-      
-      const geoData = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`${city}, ${country}`)}&format=json&limit=1&addressdetails=1`,
-        { headers: { "User-Agent": "CarryOnTravelApp/1.0" } }
-      ).then(r => r.json());
-      if (!geoData.length) { setSearchError("City not found. Try a different spelling."); return; }
-      const { lat: rawLat, lon: rawLon, address } = geoData[0];
-      const lat = parseFloat(rawLat), lon = parseFloat(rawLon);
-      const countryCode = address?.country_code?.toUpperCase() || "";
-
-      
-      let cData = null;
-      try {
-        const c = await fetch(`https://restcountries.com/v3.1/alpha/${countryCode}`).then(r => r.json()).then(j => j[0]);
-        cData = {
-          name: c.name?.common || country,
-          languages: Object.values(c.languages || {}).slice(0, 3).join(", ") || "—",
-          callingCode: c.idd?.root ? `${c.idd.root}${(c.idd.suffixes||[])[0]||""}` : "—",
-        };
-      } catch (_) {}
-
-      
-      try {
-        const tz = await fetch(`https://timeapi.io/api/time/current/coordinate?latitude=${lat}&longitude=${lon}`).then(r => r.json());
-        if (tz.dateTime) setLocalTime({
-          time: new Date(tz.dateTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
-          date: new Date(tz.dateTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-          timezone: tz.timeZone || "—",
-          offset: tz.utcOffset || "—",
-        });
-      } catch (_) { setLocalTime(null); }
-
-    
-      setWeatherLoading(true); setWeather(null);
-      try {
-        const now = new Date(); now.setHours(0,0,0,0);
-        const s = startDate ? new Date(new Date(startDate).setHours(0,0,0,0)) : null;
-        const e = endDate ? new Date(new Date(endDate).setHours(0,0,0,0)) : null;
-        const daysToStart = s ? Math.floor((s - now) / 86400000) : null;
-        const daysToEnd = e ? Math.floor((e - now) / 86400000) : null;
-        if (daysToStart !== null && daysToStart <= 16 && (daysToEnd === null || daysToEnd >= 0)) {
-          const tripLen = e && s ? Math.ceil((e - s) / 86400000) + 1 : 7;
-          const days = Math.min(Math.max(daysToStart, 0) + tripLen, 16);
-          const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum&temperature_unit=fahrenheit&timezone=auto&forecast_days=${days}`).then(r => r.json());
-          if (w.daily) {
-            const idxs = w.daily.time.map((d, i) => {
-              const date = new Date(d + "T12:00:00"); date.setHours(0,0,0,0);
-              return (!s || date >= s) && (!e || date <= e) ? i : null;
-            }).filter(i => i !== null);
-            if (idxs.length) setWeather({ time: idxs.map(i=>w.daily.time[i]), temperature_2m_max: idxs.map(i=>w.daily.temperature_2m_max[i]), temperature_2m_min: idxs.map(i=>w.daily.temperature_2m_min[i]), weathercode: idxs.map(i=>w.daily.weathercode[i]), precipitation_sum: idxs.map(i=>w.daily.precipitation_sum[i]) });
-          }
-        }
-      } catch (_) {}
-      setWeatherLoading(false);
-
-      setCountryData(cData);
-      setDestination({ city, country: cData?.name || country, lat, lon });
-      setLists(prev => ({ ...prev, documents: makeDocItems(cData?.name || country) }));
-      Animated.sequence([
-        Animated.timing(fadeAnim, { toValue: 0.3, duration: 100, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-      ]).start();
-    } catch (_) {
-      setSearchError("Search failed. Check your connection and try again.");
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  const toggleItem = (key, id) => setLists(prev => ({
-    ...prev, [key]: prev[key].map(i => i.id === id ? { ...i, checked: !i.checked } : i),
-  }));
-
-  const openFlights = () => {
-    const dest = destination?.city || countryInput || "";
-    const from = startDate?.toISOString().slice(0, 10) || "";
-    const to = endDate?.toISOString().slice(0, 10) || "";
-    let url = `https://www.google.com/travel/flights?q=Flights+to+${encodeURIComponent(dest)}`;
-    if (from) url += `&hl=en#flt=.${encodeURIComponent(dest)}.${from}*${encodeURIComponent(dest)}.${to}`;
-    Linking.openURL(url);
+  const toggleItem = (key, id) => {
+    if (!preparationLoaded) setPreparationLoaded(true);
+    setLists(prev => ({
+      ...prev,
+      [key]: prev[key].map(i => i.id === id ? { ...i, checked: !i.checked } : i),
+    }));
   };
 
   const InfoRow = ({ label, val, bold }) => (
@@ -236,7 +261,6 @@ export default function BeforeYouTravel() {
     <SafeAreaView style={st.safe}>
       <ScrollView contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-        
         <View style={st.topRow}>
           <TouchableOpacity onPress={() => router.back()} style={st.backBtn}>
             <Ionicons name="chevron-back" size={24} color="#111827" />
@@ -245,165 +269,108 @@ export default function BeforeYouTravel() {
           <View style={{ width: 36 }} />
         </View>
 
-        
-        <View style={st.searchCard}>
-          <Text style={st.searchCardTitle}>Where are you going?</Text>
-          <View style={st.searchRow}>
-            {[
-              { placeholder: "City", val: cityInput, set: setCityInput, flex: 1.2, icon: "business-outline", key: "next" },
-              { placeholder: "Country", val: countryInput, set: setCountryInput, flex: 1.4, icon: "globe-outline", key: "search" },
-            ].map(({ placeholder, val, set, flex, icon, key }) => (
-              <View key={placeholder} style={[st.searchInput, { flex }]}>
-                <Ionicons name={icon} size={14} color="#aaa" style={{ marginRight: 6 }} />
-                <TextInput style={{ flex: 1, fontSize: 14, color: "#111" }} placeholder={placeholder} placeholderTextColor="#aaa"
-                  value={val} onChangeText={set} onSubmitEditing={handleSearch} returnKeyType={key} />
-              </View>
-            ))}
-          </View>
-          {searchError ? <Text style={st.searchError}>{searchError}</Text> : null}
-          <TouchableOpacity style={[st.searchBtn, searching && { opacity: 0.6 }]} onPress={handleSearch} disabled={searching}>
-            {searching ? <ActivityIndicator size="small" color="#fff" /> : <>
-              <Ionicons name="search" size={15} color="#fff" />
-              <Text style={st.searchBtnText}>Load Destination Info</Text>
-            </>}
-          </TouchableOpacity>
-          {destination && (
-            <View style={st.destTag}>
-              <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
-              <Text style={st.destTagText}>Loaded: {destination.city}, {destination.country}</Text>
-            </View>
-          )}
-        </View>
-
-        
+        {/* Country info card */}
         {(countryData || localTime) && (
           <View style={st.localInfoCard}>
             <Text style={st.localInfoTitle}>{destination?.country || "Local Info"}</Text>
-            {countryData?.languages && <InfoRow label="Language(s)" val={countryData.languages} />}
+            {countryData?.languages   && <InfoRow label="Language(s)"  val={countryData.languages} />}
             {countryData?.callingCode && <InfoRow label="Calling Code" val={countryData.callingCode} />}
             {localTime && <>
               <InfoRow label="Local Time" val={localTime.time} bold />
               <InfoRow label="Local Date" val={localTime.date} />
-              <InfoRow label="Timezone" val={localTime.timezone} />
+              <InfoRow label="Timezone"   val={localTime.timezone} />
               <InfoRow label="UTC Offset" val={localTime.offset} />
             </>}
           </View>
         )}
 
-        
-        <Animated.View style={{ opacity: fadeAnim }}>
-          <View style={st.stack}>
-            {Object.entries(SECTIONS).map(([key, meta]) => {
-              const isOpen = openKey === key;
-              const complete = meta.checklist && lists[key]?.every(i => i.checked) && lists[key]?.length > 0;
-              return (
-                <View key={key} style={[st.card, isOpen && st.cardOpen]}>
-                  <TouchableOpacity onPress={() => setOpenKey(isOpen ? "" : key)} style={st.cardHeader} activeOpacity={0.8}>
-                    <View style={st.cardHeaderLeft}>
-                      {meta.checklist ? (
-                        <View style={[st.secCb, complete && st.secCbDone]}>
-                          {complete && <Ionicons name="checkmark" size={10} color="#fff" />}
-                        </View>
-                      ) : <Ionicons name={meta.icon} size={16} color="#2E5BFF" />}
-                      <Text style={st.cardTitle}>{meta.title}</Text>
-                    </View>
-                    <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color="rgba(17,24,39,0.4)" />
-                  </TouchableOpacity>
+        {/* Accordion sections */}
+        <View style={st.stack}>
+          {Object.entries(SECTIONS).map(([key, meta]) => {
+            const isOpen = openKey === key;
+            const isChecklist = !meta.noChecklist;
+            const complete = isChecklist && lists[key]?.every(i => i.checked) && lists[key]?.length > 0;
 
-                  {isOpen && (
-                    <View style={st.cardBody}>
-                      
-                      {key === "documents" && <>
-                        {!destination && <Hint text="Search a destination above to load country info." />}
-                        <Text style={st.subheading}>📋 Document Checklist</Text>
-                        <Checklist sectionKey="documents" />
-                      </>}
+            return (
+              <View key={key} style={[st.card, isOpen && st.cardOpen]}>
+                <TouchableOpacity onPress={() => setOpenKey(isOpen ? "" : key)} style={st.cardHeader} activeOpacity={0.8}>
+                  <View style={st.cardHeaderLeft}>
+                    {isChecklist ? (
+                      <View style={[st.secCb, complete && st.secCbDone]}>
+                        {complete && <Ionicons name="checkmark" size={10} color="#fff" />}
+                      </View>
+                    ) : (
+                      <Ionicons name={meta.icon} size={16} color="#2E5BFF" />
+                    )}
+                    <Text style={st.cardTitle}>{meta.title}</Text>
+                  </View>
+                  <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color="rgba(17,24,39,0.4)" />
+                </TouchableOpacity>
 
-                      
-                      {meta.checklist && key !== "documents" && <Checklist sectionKey={key} />}
+                {isOpen && (
+                  <View style={st.cardBody}>
+                    {isChecklist && key === "documents" && <>
+                      {!destination && <Hint text="Loading destination from your trip..." />}
+                      <Text style={st.subheading}>📋 Document Checklist</Text>
+                      <Checklist sectionKey="documents" />
+                    </>}
 
-                      
-                      {key === "weather" && <>
-                        {!destination && <Hint text="Search a destination above to load weather." />}
-                        {destination && weatherLoading && <ActivityIndicator size="small" color="#2E5BFF" style={{ marginVertical: 12 }} />}
-                        {destination && !weatherLoading && !weather && (
-                          <Hint icon="time-outline" color="#888" text={
-                            daysUntil !== null && daysUntil > 16
-                              ? `Your trip is ${daysUntil} days away. Forecasts are only available within 16 days.`
-                              : "Weather data unavailable for this location."
-                          } />
-                        )}
-                        {weather && <>
-                          <Text style={st.weatherSubtitle}>
-                            {startDate && endDate
-                              ? `${startDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${endDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})} · ${destination.city} · °F`
-                              : `${destination.city} · °F`}
-                          </Text>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.weatherScroll}>
-                            {weather.time.map((date, i) => {
-                              const [desc, icon] = wmo(weather.weathercode[i]);
-                              return (
-                                <View key={date} style={st.weatherCard}>
-                                  <Text style={st.weatherDate}>{new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</Text>
-                                  <Ionicons name={icon} size={26} color="#2E5BFF" style={{ marginVertical: 6 }} />
-                                  <Text style={st.weatherDesc}>{desc}</Text>
-                                  <Text style={st.weatherTemp}>{Math.round(weather.temperature_2m_max[i])}° / {Math.round(weather.temperature_2m_min[i])}°</Text>
-                                  {weather.precipitation_sum[i] > 0 && <Text style={st.weatherRain}>💧 {weather.precipitation_sum[i].toFixed(1)}mm</Text>}
-                                </View>
-                              );
-                            })}
-                          </ScrollView>
-                        </>}
-                      </>}
+                    {isChecklist && key !== "documents" && <Checklist sectionKey={key} />}
 
-                      
-                      {key === "flights" && <>
-                        <Hint text="Flight booking APIs require commercial partnerships. We'll open Google Flights with your trip details pre-filled." />
-                        {destination ? (
-                          <View style={st.flightCard}>
-                            {[
-                              { icon: "airplane-outline", label: "Destination", val: destination.city },
-                              ...(startDate && endDate ? [
-                                { icon: "calendar-outline", label: "Depart", val: startDate.toLocaleDateString() },
-                                { icon: "calendar-outline", label: "Return", val: endDate.toLocaleDateString() },
-                              ] : []),
-                            ].map(({ icon, label, val }) => (
-                              <View key={label} style={st.flightRow}>
-                                <Ionicons name={icon} size={16} color="#2E5BFF" />
-                                <Text style={st.flightLabel}>{label}</Text>
-                                <Text style={st.flightVal}>{val}</Text>
+                    {key === "weather" && <>
+                      {!destination && <Hint text="Loading weather from your trip destination..." />}
+                      {destination && !weather && (
+                        <Hint icon="time-outline" color="#888" text={
+                          daysUntil !== null && daysUntil > 16
+                            ? `Your trip is ${daysUntil} days away. Forecasts are only available within 16 days.`
+                            : "Weather data unavailable for this location."
+                        } />
+                      )}
+                      {weather && <>
+                        <Text style={st.weatherSubtitle}>
+                          {startDate && endDate
+                            ? `${startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${endDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${destination.city} · °F`
+                            : `${destination.city} · °F`}
+                        </Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.weatherScroll}>
+                          {weather.time.map((date, i) => {
+                            const [desc, icon] = wmo(weather.weathercode[i]);
+                            return (
+                              <View key={date} style={st.weatherCard}>
+                                <Text style={st.weatherDate}>
+                                  {new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                </Text>
+                                <Ionicons name={icon} size={26} color="#2E5BFF" style={{ marginVertical: 6 }} />
+                                <Text style={st.weatherDesc}>{desc}</Text>
+                                <Text style={st.weatherTemp}>
+                                  {Math.round(weather.temperature_2m_max[i])}° / {Math.round(weather.temperature_2m_min[i])}°
+                                </Text>
+                                {weather.precipitation_sum[i] > 0 && (
+                                  <Text style={st.weatherRain}>💧 {weather.precipitation_sum[i].toFixed(1)}mm</Text>
+                                )}
                               </View>
-                            ))}
-                          </View>
-                        ) : <Text style={st.emptyText}>Search a destination above to pre-fill flight search.</Text>}
-                        <TouchableOpacity style={st.flightBtn} onPress={openFlights}>
-                          <Ionicons name="airplane" size={18} color="#fff" />
-                          <Text style={st.flightBtnText}>Search on Google Flights</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[st.flightBtn, { backgroundColor: "#00897B", marginTop: 10 }]}
-                          onPress={() => Linking.openURL(`https://www.kayak.com/flights/${destination?.city?.toUpperCase() || ""}`)}>
-                          <Ionicons name="airplane-outline" size={18} color="#fff" />
-                          <Text style={st.flightBtnText}>Search on Kayak</Text>
-                        </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
                       </>}
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        </Animated.View>
+                    </>}
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
 
-        
+        {/* Countdown + progress */}
         <View style={st.bottomArea}>
           <View style={st.statRow}>
             <View style={st.leftStat}>
-              <View style={st.clockWrap}>
-                <Ionicons name="time-outline" size={28} color="#2E5BFF" />
-              </View>
+              <Ionicons name="time-outline" size={28} color="#2E5BFF" />
               <View>
                 <Text style={st.bigNumber}>{daysUntil ?? "—"}</Text>
-                <Text style={st.smallLabel}>{daysUntil === 0 ? "trip started!" : daysUntil === 1 ? "day until trip" : "days until trip"}</Text>
+                <Text style={st.smallLabel}>
+                  {daysUntil === 0 ? "trip started!" : daysUntil === 1 ? "day until trip" : "days until trip"}
+                </Text>
               </View>
             </View>
             <View style={st.rightStat}>
@@ -432,15 +399,6 @@ const st = StyleSheet.create({
   topRow: { paddingTop: Platform.OS === "android" ? 10 : 4, paddingBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   backBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   topTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
-  searchCard: { backgroundColor: "#f5f7ff", borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: "rgba(46,91,255,0.15)" },
-  searchCardTitle: { fontSize: 13, fontWeight: "700", color: "#2E5BFF", marginBottom: 10 },
-  searchRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  searchInput: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 9, paddingHorizontal: 10, paddingVertical: 9, borderWidth: 1, borderColor: "rgba(17,24,39,0.12)" },
-  searchError: { fontSize: 12, color: "#dc2626", marginBottom: 6 },
-  searchBtn: { backgroundColor: "#2E5BFF", borderRadius: 9, paddingVertical: 11, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
-  searchBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  destTag: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
-  destTagText: { fontSize: 12, color: "#22c55e", fontWeight: "600" },
   localInfoCard: { backgroundColor: "#f5f7ff", borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: "rgba(46,91,255,0.15)", gap: 8 },
   localInfoTitle: { fontSize: 13, fontWeight: "700", color: "#2E5BFF", marginBottom: 4 },
   infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
@@ -464,7 +422,6 @@ const st = StyleSheet.create({
   hintBox: { flexDirection: "row", alignItems: "flex-start", gap: 7, backgroundColor: "#f0f4ff", borderRadius: 8, padding: 10, marginBottom: 10 },
   hintText: { flex: 1, fontSize: 12, lineHeight: 17 },
   subheading: { fontSize: 12, fontWeight: "700", color: "rgba(17,24,39,0.55)", letterSpacing: 0.8, marginBottom: 8 },
-  emptyText: { fontSize: 12, color: "#aaa", fontStyle: "italic", marginBottom: 8, lineHeight: 17 },
   weatherSubtitle: { fontSize: 11, color: "rgba(17,24,39,0.45)", marginBottom: 10 },
   weatherScroll: { marginHorizontal: -14 },
   weatherCard: { width: 110, backgroundColor: "#f5f7ff", borderRadius: 12, padding: 10, marginLeft: 14, marginRight: 4, alignItems: "center", borderWidth: 1, borderColor: "rgba(46,91,255,0.1)" },
@@ -472,16 +429,9 @@ const st = StyleSheet.create({
   weatherDesc: { fontSize: 10, color: "#555", textAlign: "center", marginBottom: 3 },
   weatherTemp: { fontSize: 13, fontWeight: "800", color: "#111" },
   weatherRain: { fontSize: 10, color: "#555", marginTop: 2 },
-  flightCard: { backgroundColor: "#f8f9ff", borderRadius: 10, padding: 12, marginBottom: 12, gap: 8, borderWidth: 1, borderColor: "rgba(46,91,255,0.12)" },
-  flightRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  flightLabel: { fontSize: 12, color: "rgba(17,24,39,0.5)", fontWeight: "600", width: 70 },
-  flightVal: { fontSize: 13, color: "#111", fontWeight: "600", flex: 1 },
-  flightBtn: { backgroundColor: "#2E5BFF", borderRadius: 10, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  flightBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   bottomArea: { marginTop: 24, borderTopWidth: 1, borderTopColor: "rgba(17,24,39,0.08)", paddingTop: 18 },
   statRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 18 },
   leftStat: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  clockWrap: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   rightStat: { flex: 1, alignItems: "center" },
   progressTrack: { width: "90%", height: 8, borderRadius: 8, backgroundColor: "rgba(17,24,39,0.15)", overflow: "hidden", marginBottom: 10 },
   progressFill: { height: "100%", borderRadius: 8, backgroundColor: "#2E5BFF" },

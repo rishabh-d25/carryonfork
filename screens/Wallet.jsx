@@ -21,98 +21,78 @@ export default function WalletScreen() {
   const [budget, setBudget] = useState(0);
   const [tripDays, setTripDays] = useState(1);
   const [expenses, setExpenses] = useState([]);
-  const [currencies, setCurrencies] = useState([]);
-  const [selectedCurrency, setSelectedCurrency] = useState({ code: "JPY", label: "Japanese Yen" });
+  const [selectedCurrency, setSelectedCurrency] = useState(null);
   const [exchangeRate, setExchangeRate] = useState(null);
-  const [currencySearch, setCurrencySearch] = useState("");
-  const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [expenseName, setExpenseName] = useState("");
   const [expenseCost, setExpenseCost] = useState("");
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  
   let total = 0;
-
-    for (let i = 0; i < expenses.length; i++) {
-        total += expenses[i].cost || 0;
-    }
+  for (let i = 0; i < expenses.length; i++) {
+    total += expenses[i].cost || 0;
+  }
 
   const remaining = Math.max(budget - total, 0);
   const dailyBudget = tripDays > 0 ? Math.round(remaining / tripDays) : 0;
   const pctUsed = budget > 0 ? (total / budget) * 100 : 0;
 
-
-  const filteredCurrencies = currencies.filter(c =>
-    c.label.toLowerCase().includes(currencySearch.toLowerCase()) ||
-    c.code.toLowerCase().includes(currencySearch.toLowerCase())
-  );
-
-  
+  // Load trip data, then use the country to find the matching currency from the API
   useEffect(() => {
     const user = auth.currentUser;
 
-    getDoc(doc(db, "users", user.uid, "trips", String(tripId))).then(snap => {
-      
+    getDoc(doc(db, "users", user.uid, "trips", String(tripId))).then(async snap => {
       const d = snap.data();
-
       setBudget(d.budget);
-
-      
 
       if (d.startDate && d.endDate) {
         const days = Math.max(1, Math.round((d.endDate.toDate() - d.startDate.toDate()) / 86400000));
         setTripDays(days);
       }
 
+      // Use the same currencies API that was already in the original code,
+      // just match against the country string from Firebase instead of user input
+      if (d.location?.country) {
+        const country = d.location.country.toLowerCase() || "";
+        const data = await fetch("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies.json").then(r => r.json());
+        const match = Object.entries(data).find(
+          ([code, label]) =>
+            /^[a-z]{3}$/.test(code) &&
+            typeof label === "string" &&
+            label.toLowerCase().includes(country)
+        );
+        if (match) {
+          setSelectedCurrency({ code: match[0].toUpperCase(), label: match[1] });
+        }
+      }
     });
   }, [tripId]);
 
-  
+  // Load expenses
   useEffect(() => {
     const user = auth.currentUser;
-
     const q = query(collection(db, "users", user.uid, "trips", String(tripId), "majorExpenses"), orderBy("createdAt", "desc"));
     return onSnapshot(q, snap => setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
   }, [tripId]);
 
-  
+  // Fetch exchange rate — same as original, just driven by the auto-resolved currency
   useEffect(() => {
-    const url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies.json";
-    const parse = data => Object.entries(data)
-      .filter(([code, label]) => /^[a-z]{3}$/.test(code) && typeof label === "string" && label.length > 2 && code !== "usd")
-      .map(([code, label]) => ({ code: code.toUpperCase(), label }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-
-    (async () => {
-      setCurrencies(parse(await fetch(url).then(r => r.json())));
-    })();
-
-  }, []);
-
-  
-  useEffect(() => {
-    const url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
+    if (!selectedCurrency) return;
+    const url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json";
     setExchangeRate(null);
     (async () => {
       const data = await fetch(url).then(r => r.json());
-          setExchangeRate(data?.usd?.[selectedCurrency.code.toLowerCase()] ?? null);
+      setExchangeRate(data?.usd?.[selectedCurrency.code.toLowerCase()] ?? null);
     })();
   }, [selectedCurrency]);
 
   async function addExpense() {
     const user = auth.currentUser;
-    
-
     const cost = parseFloat(expenseCost);
-
-    
-    
     await addDoc(collection(db, "users", user.uid, "trips", String(tripId), "majorExpenses"), {
-        name: expenseName.trim(), cost, createdAt: serverTimestamp(),
+      name: expenseName.trim(), cost, createdAt: serverTimestamp(),
     });
     setExpenseName(""); setExpenseCost(""); setShowAddExpense(false);
-    
   }
 
   function formatRate(rate) {
@@ -124,17 +104,16 @@ export default function WalletScreen() {
   }
 
   const PAD_L = 8, PAD_R = 8;
-  
-  function BudgetChart() {
 
+  function BudgetChart() {
     if (budget <= 0) {
-        return (
-            <View style={styles.chartWrap}>
-            <Text style={styles.chartTitle}>Budget Graph</Text>
-            <Text style={{ color: "#aaa" }}>No budget set</Text>
-            </View>
-        );
-      }
+      return (
+        <View style={styles.chartWrap}>
+          <Text style={styles.chartTitle}>Budget Graph</Text>
+          <Text style={{ color: "#aaa" }}>No budget set</Text>
+        </View>
+      );
+    }
 
     const plotH = CHART_H - 40;
     const magnitude = Math.pow(10, Math.floor(Math.log10(budget)));
@@ -171,13 +150,10 @@ export default function WalletScreen() {
     );
   }
 
-  
-
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" />
 
-      
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
           <Ionicons name="chevron-back" size={24} color="#111" />
@@ -188,11 +164,9 @@ export default function WalletScreen() {
 
       <Animated.ScrollView style={{ opacity: 1 }} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-        
         <Text style={styles.sectionLabel}>Reminders</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 4, paddingRight: 4 }}>
 
-          
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Daily Budget</Text>
             <Text style={styles.cardBig}>
@@ -208,24 +182,20 @@ export default function WalletScreen() {
             </>}
           </View>
 
-          
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Exchange Rate</Text>
             <Text style={styles.cardBig} numberOfLines={1}>
               {`1 USD = ${formatRate(exchangeRate)}`}
             </Text>
-            <Text style={styles.cardSub} numberOfLines={1}>USD → {selectedCurrency.label}</Text>
-            <TouchableOpacity style={{ marginTop: 10 }} onPress={() => { setCurrencySearch(""); setShowCurrencyPicker(true); }}>
-              <Text style={{ fontSize: 12, color: "#3F63F3", fontWeight: "700" }}>Change currency ›</Text>
-            </TouchableOpacity>
+            <Text style={styles.cardSub} numberOfLines={1}>
+              {selectedCurrency ? `USD → ${selectedCurrency.label}` : "Loading..."}
+            </Text>
           </View>
 
         </ScrollView>
 
-        
         <BudgetChart />
 
-        
         <View style={styles.majorHeader}>
           <Text style={styles.majorTitle}>Major Expenses</Text>
           <TouchableOpacity style={styles.addBtn} onPress={() => setShowAddExpense(true)}>
@@ -246,31 +216,6 @@ export default function WalletScreen() {
         <View style={{ height: 48 }} />
       </Animated.ScrollView>
 
-      
-      <Modal visible={showCurrencyPicker} transparent animationType="slide" onRequestClose={() => setShowCurrencyPicker(false)}>
-        <Pressable style={styles.overlay} onPress={() => setShowCurrencyPicker(false)} />
-        <View style={[styles.sheet, { maxHeight: "75%" }]}>
-          <Text style={styles.sheetTitle}>Select Currency</Text>
-          <View style={styles.searchBox}>
-            <Ionicons name="search" size={16} color="#aaa" />
-            <TextInput style={{ flex: 1, fontSize: 14, color: "#111" }} placeholder="Search currency or code..." placeholderTextColor="#aaa" value={currencySearch} onChangeText={setCurrencySearch} autoCorrect={false} />
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {filteredCurrencies.map(c => (
-                  <TouchableOpacity key={c.code} style={[styles.currencyRow, selectedCurrency.code === c.code && styles.currencyRowActive]} onPress={() => { setSelectedCurrency(c); setShowCurrencyPicker(false); }}>
-                    <View>
-                      <Text style={[styles.currencyName, selectedCurrency.code === c.code && { color: "#3F63F3", fontWeight: "700" }]}>{c.label}</Text>
-                      <Text style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{c.code}</Text>
-                    </View>
-                    {selectedCurrency.code === c.code && <Ionicons name="checkmark" size={18} color="#3F63F3" />}
-                  </TouchableOpacity>
-                ))
-            }
-          </ScrollView>
-        </View>
-      </Modal>
-
-      
       <Modal visible={showAddExpense} transparent animationType="slide" onRequestClose={() => setShowAddExpense(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <Pressable style={styles.overlay} onPress={() => setShowAddExpense(false)} />
@@ -280,7 +225,7 @@ export default function WalletScreen() {
             <TextInput style={styles.input} placeholder="e.g. Hotel, Flights, Car Rental..." placeholderTextColor="#aaa" value={expenseName} onChangeText={setExpenseName} />
             <Text style={styles.inputLabel}>Cost (USD $)</Text>
             <TextInput style={styles.input} placeholder="0.00" placeholderTextColor="#aaa" keyboardType="numeric" value={expenseCost} onChangeText={setExpenseCost} />
-            <TouchableOpacity style={[styles.saveBtn , { opacity: 0.6 }]} onPress={addExpense}>
+            <TouchableOpacity style={[styles.saveBtn, { opacity: 0.6 }]} onPress={addExpense}>
               <Text style={styles.saveBtnText}>{"Add Expense"}</Text>
             </TouchableOpacity>
           </View>
@@ -317,10 +262,6 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.3)" },
   sheet: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
   sheetTitle: { fontSize: 18, fontWeight: "800", color: "#111", marginBottom: 16 },
-  searchBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#f5f5f5", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12, gap: 8 },
-  currencyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#f5f5f5" },
-  currencyRowActive: { backgroundColor: "#f0f4ff", borderRadius: 8, paddingHorizontal: 8 },
-  currencyName: { fontSize: 15, color: "#222", fontWeight: "500" },
   inputLabel: { fontSize: 13, fontWeight: "600", color: "#555", marginBottom: 6 },
   input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: "#111", backgroundColor: "#fafafa", marginBottom: 14 },
   saveBtn: { backgroundColor: "#3F63F3", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 4 },

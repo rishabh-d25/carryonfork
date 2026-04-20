@@ -4,6 +4,7 @@ import Slider from "@react-native-community/slider";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -17,13 +18,13 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { doc, getDoc } from "firebase/firestore";
+import MapView, { Marker } from "react-native-maps";
+import { auth, db } from "../firebaseConfig";
 import {
   formatTime,
   getTripItemById,
   upsertTripItem,
 } from "../utils/tripStorage";
-import { auth, db } from "../firebaseConfig";
 
 const BLUE = "#3F63F3";
 const BG = "#DCE6FF";
@@ -44,10 +45,17 @@ const CATEGORIES = [
   { key: "hotel", label: "Hotel" },
 ];
 
+const LOCATION_API_KEY = "252b650d2acb4397ab93916025da875e";
+
 function createEmptyForm() {
   return {
     description: "",
-    location: "",
+    locationStreet: "",
+    locationCity: "",
+    locationState: "",
+    locationZip: "",
+    locationLatitude: 37.7749,
+    locationLongitude: -122.4194,
     reservationNumber: "",
     price: 50,
     monthIndex: 0,
@@ -132,6 +140,14 @@ export default function AddActivity() {
     hotel: createEmptyForm(),
   });
 
+  // map region state — shared for the currently visible map
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 37.7749,
+    longitude: -122.4194,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  });
+
   useEffect(() => {
     if (presetCategory && !editingId) {
       setCategory(presetCategory);
@@ -193,9 +209,17 @@ export default function AddActivity() {
           const mIndex = MONTHS.indexOf(item.month);
           const yIndex = YEARS.indexOf(item.year);
 
+          // support both old string location and new object location
+          const loc = item.location && typeof item.location === "object" ? item.location : {};
+
           const loadedForm = {
             description: item.description || "",
-            location: item.location || "",
+            locationStreet: loc.street || "",
+            locationCity: loc.city || "",
+            locationState: loc.state || "",
+            locationZip: loc.zip || "",
+            locationLatitude: loc.latitude || 37.7749,
+            locationLongitude: loc.longitude || -122.4194,
             reservationNumber: item.reservationNumber || "",
             price: item.price ?? 50,
             monthIndex: mIndex >= 0 ? mIndex : 0,
@@ -219,6 +243,10 @@ export default function AddActivity() {
             hotel: createEmptyForm(),
             [item.category || "activity"]: loadedForm,
           });
+
+          if (loc.latitude && loc.longitude) {
+            setMapRegion(prev => ({ ...prev, latitude: loc.latitude, longitude: loc.longitude }));
+          }
         }
       } catch (error) {
         console.log("Load edit item error:", error);
@@ -659,7 +687,8 @@ export default function AddActivity() {
   function isFilled(form) {
     return (
       form.description.trim() ||
-      form.location.trim() ||
+      form.locationStreet.trim() ||
+      form.locationCity.trim() ||
       form.reservationNumber.trim() ||
       form.attachments.length > 0
     );
@@ -673,7 +702,14 @@ export default function AddActivity() {
       ...(existingId ? { id: existingId } : {}),
       category: categoryKey,
       description: form.description.trim(),
-      location: form.location.trim(),
+      location: {
+        street: form.locationStreet,
+        city: form.locationCity,
+        state: form.locationState,
+        zip: form.locationZip,
+        latitude: form.locationLatitude,
+        longitude: form.locationLongitude,
+      },
       reservationNumber: form.reservationNumber.trim(),
       price: form.price,
       month,
@@ -752,6 +788,35 @@ export default function AddActivity() {
       console.log("Add all items error:", error);
       Alert.alert("Error", error.message || "Could not save trip items.");
     }
+  }
+
+  // location helpers for the map in add activity
+  function updateLocationOnMap(lat, lng) {
+    updateCurrentForm({ locationLatitude: lat, locationLongitude: lng });
+    setMapRegion(prev => ({ ...prev, latitude: lat, longitude: lng }));
+  }
+
+  async function geocodeCurrentAddress() {
+    const address = `${currentForm.locationStreet} ${currentForm.locationCity} ${currentForm.locationState} ${currentForm.locationZip}`.trim();
+    if (!address) return;
+    const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${LOCATION_API_KEY}`);
+    const data = await res.json();
+    const loc = data.results?.[0]?.geometry;
+    if (loc) updateLocationOnMap(loc.lat, loc.lng);
+  }
+
+  async function reverseGeocodeMapPress(lat, lng) {
+    const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${LOCATION_API_KEY}`);
+    const data = await res.json();
+    const components = data.results?.[0]?.components;
+    if (!components) return;
+    updateCurrentForm({
+      locationStreet: components.road || "",
+      locationCity: components.city || components.town || components.village || "",
+      locationState: components.state || "",
+      locationZip: components.postcode || "",
+    });
+    updateLocationOnMap(lat, lng);
   }
 
   if (loadingEditData) {
@@ -845,15 +910,41 @@ export default function AddActivity() {
           {category === "hotel" ? "Location / Address" : "Location"}
         </Text>
 
-        <View style={styles.locationWrap}>
+        {/* address fields */}
+        {[
+          { label: "Street", key: "locationStreet" },
+          { label: "City", key: "locationCity" },
+          { label: "State", key: "locationState" },
+          { label: "ZIP", key: "locationZip" },
+        ].map((field) => (
           <TextInput
-            style={styles.locationInput}
-            placeholder={category === "hotel" ? "Enter hotel address or city" : "Enter name of location"}
+            key={field.key}
+            style={styles.input}
+            placeholder={field.label}
             placeholderTextColor="#B8B8B8"
-            value={currentForm.location}
-            onChangeText={(text) => updateCurrentForm({ location: text })}
+            value={currentForm[field.key]}
+            onChangeText={(text) => updateCurrentForm({ [field.key]: text })}
+            keyboardType={field.key === "locationZip" ? "numeric" : "default"}
           />
-          <Ionicons name="search-outline" size={20} color={TEXT} />
+        ))}
+
+        <Pressable style={styles.showOnMapBtn} onPress={geocodeCurrentAddress}>
+          <Ionicons name="map-outline" size={18} color="#fff" />
+          <Text style={styles.showOnMapBtnText}>Show on Map</Text>
+        </Pressable>
+
+        {/* map */}
+        <View style={styles.mapWrap}>
+          <MapView
+            style={styles.map}
+            region={{ ...mapRegion, latitude: currentForm.locationLatitude, longitude: currentForm.locationLongitude }}
+            onPress={(e) => {
+              const { latitude, longitude } = e.nativeEvent.coordinate;
+              reverseGeocodeMapPress(latitude, longitude);
+            }}
+          >
+            <Marker coordinate={{ latitude: currentForm.locationLatitude, longitude: currentForm.locationLongitude }} />
+          </MapView>
         </View>
 
         <Text style={styles.label}>Reservation Number</Text>
@@ -927,7 +1018,7 @@ export default function AddActivity() {
                 )}
 
                 <Text numberOfLines={1} style={styles.attachmentName}>
-                  {item.name}
+                  {typeof item.name === "string" ? item.name : "Attachment"}
                 </Text>
 
                 <Pressable
@@ -1163,6 +1254,34 @@ const styles = StyleSheet.create({
     color: "#1F2937",
     marginBottom: 14
   },
+
+  showOnMapBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: BLUE,
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+
+  showOnMapBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+
+  mapWrap: {
+    height: 200,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+
+  map: { flex: 1 },
 
   locationWrap: {
     height: 52,
