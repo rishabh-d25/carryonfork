@@ -298,24 +298,21 @@ export default function Dashboard() {
                   )}
                 </View>
               </ImageBackground>
-            ) : (
-              <ImageBackground
-                source={MAIN_TRIP_IMAGE}
-                style={styles.heroImage}
-                imageStyle={styles.heroImageRadius}
-              >
-                <View style={styles.heroLabelButton}>
-                  <Text style={styles.heroLabelText}>
-                    {mainTrip.title || mainTrip.location?.city || mainTrip.location?.country || "Trip"}
-                  </Text>
-                  {!!getTripDateRange(mainTrip) && (
-                    <Text style={styles.heroDateText}>
-                      {getTripDateRange(mainTrip)}
+              ) : (
+<View style={[styles.heroImage, styles.heroEmpty]}>
+  <Ionicons name="image-outline" size={36} color="#9CA3AF" />
+  <Text style={styles.heroEmptyText}>Add a trip photo</Text>                  <View style={styles.heroLabelButton}>
+                    <Text style={styles.heroLabelText}>
+                      {mainTrip.title || mainTrip.location?.city || mainTrip.location?.country || "Trip"}
                     </Text>
-                  )}
+                    {!!getTripDateRange(mainTrip) && (
+                      <Text style={styles.heroDateText}>
+                        {getTripDateRange(mainTrip)}
+                      </Text>
+                    )}
+                  </View>
                 </View>
-              </ImageBackground>
-            )}
+              )}
           </TouchableOpacity>
         ) : (
           <View style={styles.noMainTripCard}>
@@ -551,6 +548,21 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontFamily: "CinzelDecorative_700Bold",
   },
+  heroEmpty: {
+  backgroundColor: "#C9D7FF",
+  borderWidth: 1,
+  borderColor: "#B4C6FF",
+  borderRadius: 14,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+heroEmptyText: {
+  marginTop: 8,
+  fontSize: 14,
+  fontWeight: "600",
+  color: "#4B5563",
+},
   subtitle: {
     marginTop: 6,
     fontSize: 12,
