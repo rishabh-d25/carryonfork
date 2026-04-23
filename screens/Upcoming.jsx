@@ -9,7 +9,8 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  View
+  View,
+  TouchableOpacity,
 } from "react-native";
 
 import { collection, getDocs } from "firebase/firestore";
@@ -32,7 +33,7 @@ const MONTHS = [
 
 function parseDate(ts) {
   if (!ts) return null;
-  if (typeof ts === 'object' && ts.toDate) {
+  if (typeof ts === "object" && ts.toDate) {
     const d = ts.toDate();
     d.setHours(0, 0, 0, 0);
     return d;
@@ -55,17 +56,25 @@ export default function UpcomingScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(null);
 
-  
   useEffect(() => {
     const fetchTrips = async () => {
       try {
         const user = auth.currentUser;
         const snapshot = await getDocs(collection(db, "users", user.uid, "trips"));
-        const fetched = snapshot.docs.map((doc, i) => ({
-          id: doc.id,
-          color: TRIP_COLORS[i % TRIP_COLORS.length],
-          ...doc.data(),
-        }));
+const fetched = snapshot.docs.map((doc, i) => ({
+  id: doc.id,
+  color: TRIP_COLORS[i % TRIP_COLORS.length],
+  ...doc.data(),
+}));
+
+// 🔥 sort by END DATE (soonest ending first)
+fetched.sort((a, b) => {
+  const aEnd = parseDate(a.endDate)?.getTime() || 0;
+  const bEnd = parseDate(b.endDate)?.getTime() || 0;
+  return aEnd - bEnd;
+});
+
+setTrips(fetched);
         setTrips(fetched);
       } catch (e) {
         console.error("Error fetching trips:", e);
@@ -75,7 +84,6 @@ export default function UpcomingScreen() {
     };
     fetchTrips();
   }, []);
-
 
   const daysInMonth = useMemo(() => {
     return new Date(year, monthIndex + 1, 0).getDate();
@@ -99,15 +107,49 @@ export default function UpcomingScreen() {
     return cells;
   }, [firstDayOfMonth, daysInMonth]);
 
-  function getTripsForDay(day) {
-    const date = new Date(year, monthIndex, day);
-    date.setHours(0, 0, 0, 0);
-    return trips.filter((trip) => {
-        const start = parseDate(trip.startDate);
-        const end = parseDate(trip.endDate);
-        return isBetween(date, start, end);
-    });
+function getTripsForDay(day) {
+  const date = new Date(year, monthIndex, day);
+  date.setHours(0, 0, 0, 0);
+
+  const tripsForDay = trips.filter((trip) => {
+    const start = parseDate(trip.startDate);
+    const end = parseDate(trip.endDate);
+    return isBetween(date, start, end);
+  });
+
+  function getDayRank(trip) {
+    const start = parseDate(trip.startDate);
+    const end = parseDate(trip.endDate);
+
+    const startsToday = start && start.getTime() === date.getTime();
+    const endsToday = end && end.getTime() === date.getTime();
+
+    // ends today but started earlier
+    if (endsToday && !startsToday) return 0;
+
+    // starts and ends today
+    if (startsToday && endsToday) return 1;
+
+    // starts today and continues later
+    if (startsToday && !endsToday) return 2;
+
+    // trips already in progress, neither starting nor ending today
+    return 3;
   }
+
+  return tripsForDay.sort((a, b) => {
+    const rankDiff = getDayRank(a) - getDayRank(b);
+    if (rankDiff !== 0) return rankDiff;
+
+    const aEnd = parseDate(a.endDate)?.getTime() || 0;
+    const bEnd = parseDate(b.endDate)?.getTime() || 0;
+    if (aEnd !== bEnd) return aEnd - bEnd;
+
+    const aStart = parseDate(a.startDate)?.getTime() || 0;
+    const bStart = parseDate(b.startDate)?.getTime() || 0;
+    return aStart - bStart;
+  });
+}
 
   function goPrevMonth() {
     if (monthIndex === 0) {
@@ -129,7 +171,6 @@ export default function UpcomingScreen() {
     setSelectedDay(null);
   }
 
-
   const selectedTrips = useMemo(() => {
     if (!selectedDay) return [];
     return getTripsForDay(selectedDay);
@@ -138,12 +179,17 @@ export default function UpcomingScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" />
-      
+
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.iconButton} hitSlop={8}>
-          <Ionicons name="chevron-back" size={24} color={TEXT} />
-        </Pressable>
+        <TouchableOpacity
+          onPress={() => router.dismissTo({ pathname: "/dashboard" })}
+          style={styles.iconButton}
+        >
+          <Ionicons name="chevron-back" size={24} color="#111827" />
+        </TouchableOpacity>
+
         <Text style={styles.title}>Upcoming</Text>
+
         <View style={styles.iconButton} />
       </View>
 
@@ -153,29 +199,29 @@ export default function UpcomingScreen() {
         </View>
       ) : (
         <>
-          
           <View style={styles.calendarCard}>
-            
             <View style={styles.calendarTopRow}>
               <Pressable onPress={goPrevMonth} style={styles.arrowButton}>
                 <Ionicons name="chevron-back" size={18} color={TEXT} />
               </Pressable>
+
               <Text style={styles.monthYearText}>
                 {MONTHS[monthIndex]} {year}
               </Text>
+
               <Pressable onPress={goNextMonth} style={styles.arrowButton}>
                 <Ionicons name="chevron-forward" size={18} color={TEXT} />
               </Pressable>
             </View>
 
-            
             <View style={styles.weekRow}>
               {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
-                <Text key={d} style={styles.weekText}>{d}</Text>
+                <Text key={d} style={styles.weekText}>
+                  {d}
+                </Text>
               ))}
             </View>
 
-            
             <View style={styles.daysGrid}>
               {calendarCells.map((cell) => {
                 if (cell.type !== "day") {
@@ -193,7 +239,10 @@ export default function UpcomingScreen() {
                     style={[
                       styles.dayCell,
                       hasTrip && { backgroundColor: tripColor + "30" },
-                      isSelected && { backgroundColor: tripColor || BLUE, borderRadius: 10 },
+                      isSelected && {
+                        backgroundColor: tripColor || BLUE,
+                        borderRadius: 10,
+                      },
                     ]}
                     onPress={() => setSelectedDay(cell.value)}
                   >
@@ -206,11 +255,14 @@ export default function UpcomingScreen() {
                     >
                       {cell.value}
                     </Text>
-                    
+
                     {tripsOnDay.length > 1 && (
                       <View style={styles.dotsRow}>
                         {tripsOnDay.slice(0, 3).map((t) => (
-                          <View key={t.id} style={[styles.dot, { backgroundColor: t.color }]} />
+                          <View
+                            key={t.id}
+                            style={[styles.dot, { backgroundColor: t.color }]}
+                          />
                         ))}
                       </View>
                     )}
@@ -220,10 +272,14 @@ export default function UpcomingScreen() {
             </View>
           </View>
 
-          
-          <ScrollView style={styles.detailsArea} contentContainerStyle={styles.detailsContent}>
+          <ScrollView
+            style={styles.detailsArea}
+            contentContainerStyle={styles.detailsContent}
+          >
             {!selectedDay && (
-              <Text style={styles.placeholderText}>Tap a day to see trip details</Text>
+              <Text style={styles.placeholderText}>
+                Tap a day to see trip details
+              </Text>
             )}
 
             {selectedDay && selectedTrips.length === 0 && (
@@ -231,19 +287,27 @@ export default function UpcomingScreen() {
             )}
 
             {selectedTrips.map((trip) => (
-              <View key={trip.id} style={[styles.tripCard, { borderLeftColor: trip.color }]}>
-                
+              <View
+                key={trip.id}
+                style={[styles.tripCard, { borderLeftColor: trip.color }]}
+              >
                 <View style={styles.tripTitleRow}>
-                  <View style={[styles.colorDot, { backgroundColor: trip.color }]} />
-                  <Text style={styles.tripLocation}>{trip.location}</Text>
+                  <View
+                    style={[styles.colorDot, { backgroundColor: trip.color }]}
+                  />
+<Text style={styles.tripLocation}>
+  {typeof trip.location === "string"
+    ? trip.location
+    : [trip.location?.city, trip.location?.country].filter(Boolean).join(", ") || "Trip"}
+</Text>
                 </View>
 
-                
                 <View style={styles.tripDetailsGrid}>
                   <View style={styles.tripDetailItem}>
                     <Text style={styles.tripDetailLabel}>Dates</Text>
                     <Text style={styles.tripDetailValue}>
-                        {parseDate(trip.startDate)?.toLocaleDateString()} → {parseDate(trip.endDate)?.toLocaleDateString()}
+                      {parseDate(trip.startDate)?.toLocaleDateString()} →{" "}
+                      {parseDate(trip.endDate)?.toLocaleDateString()}
                     </Text>
                   </View>
 
@@ -257,17 +321,19 @@ export default function UpcomingScreen() {
                   {trip.description ? (
                     <View style={styles.tripDetailItem}>
                       <Text style={styles.tripDetailLabel}>Description</Text>
-                      <Text style={styles.tripDetailValue}>{trip.description}</Text>
+                      <Text style={styles.tripDetailValue}>
+                        {trip.description}
+                      </Text>
                     </View>
                   ) : null}
 
                   <View style={styles.tripDetailItem}>
                     <Text style={styles.tripDetailLabel}>Group Trip</Text>
-                    <Text style={styles.tripDetailValue}>{trip.withGroup ? "Yes" : "No"}</Text>
+                    <Text style={styles.tripDetailValue}>
+                      {trip.withGroup ? "Yes" : "No"}
+                    </Text>
                   </View>
                 </View>
-
-              
               </View>
             ))}
           </ScrollView>
@@ -292,6 +358,8 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
 
+
+
   title: {
     fontSize: 20,
     fontWeight: "700",
@@ -304,7 +372,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  /* ===== CALENDAR ===== */
   calendarCard: {
     backgroundColor: "#D4DEFF",
     marginHorizontal: 16,
@@ -316,38 +383,45 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     marginBottom: 12,
   },
+
   calendarTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 14,
   },
+
   arrowButton: {
     width: 28,
     alignItems: "center",
     justifyContent: "center",
   },
+
   monthYearText: {
     fontSize: 16,
     fontWeight: "700",
     color: "#1F2937",
   },
+
   weekRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 6,
     paddingHorizontal: 2,
   },
+
   weekText: {
     width: "14.28%",
     textAlign: "center",
     color: "#6B7280",
     fontSize: 12,
   },
+
   daysGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
   },
+
   dayCell: {
     width: "14.28%",
     aspectRatio: 1,
@@ -356,30 +430,34 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 2,
   },
+
   dayText: {
     fontSize: 15,
     color: "#1F2937",
   },
+
   dotsRow: {
     flexDirection: "row",
     gap: 2,
     marginTop: 1,
   },
+
   dot: {
     width: 4,
     height: 4,
     borderRadius: 2,
   },
 
-  /* ===== DETAILS ===== */
   detailsArea: {
     flex: 1,
     marginHorizontal: 16,
   },
+
   detailsContent: {
     paddingBottom: 30,
     gap: 12,
   },
+
   placeholderText: {
     textAlign: "center",
     color: "#6B7280",
@@ -387,7 +465,6 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
 
-  /* ===== TRIP CARD ===== */
   tripCard: {
     backgroundColor: "#D4DEFF",
     borderRadius: 14,
@@ -396,17 +473,20 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     padding: 14,
   },
+
   tripTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 10,
     gap: 8,
   },
+
   colorDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
+
   tripLocation: {
     fontSize: 17,
     fontWeight: "700",
@@ -417,17 +497,20 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 12,
   },
+
   tripDetailItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
+
   tripDetailLabel: {
     fontSize: 13,
     color: "#6B7280",
     fontWeight: "600",
     width: 90,
   },
+
   tripDetailValue: {
     fontSize: 13,
     color: "#1F2937",
@@ -442,6 +525,7 @@ const styles = StyleSheet.create({
     borderTopColor: "#B4C6FF",
     paddingTop: 10,
   },
+
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -453,6 +537,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#B4C6FF",
   },
+
   actionLabel: {
     fontSize: 13,
     fontWeight: "600",

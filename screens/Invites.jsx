@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -53,6 +54,85 @@ function getInviteTripId(invite) {
   );
 }
 
+function formatLocation(value) {
+  if (!value) return "Trip";
+  if (typeof value === "string") return value;
+
+  if (typeof value === "object") {
+    return [value.city, value.state, value.country, value.name]
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "Trip";
+}
+
+function getInviteTitle(invite) {
+  return (
+    invite.tripData?.title ||
+    invite.tripData?.tripTitle ||
+    invite.tripData?.tripName ||
+    invite.tripData?.name ||
+    invite.tripTitle ||
+    invite.tripName ||
+    invite.title ||
+    invite.name ||
+    formatLocation(invite.tripData?.location) ||
+    formatLocation(invite.location) ||
+    formatLocation(invite.tripLocation) ||
+    "Trip"
+  );
+}
+
+function getInviteDescription(invite) {
+  const value =
+    invite.tripData?.description ||
+    invite.description ||
+    invite.tripDescription ||
+    invite.tripData?.notes ||
+    invite.notes ||
+    "";
+
+  return typeof value === "string" ? value : "";
+}
+
+function getInviteStartDate(invite) {
+  return invite.tripData?.startDate || invite.startDate || invite.tripStartDate || null;
+}
+
+function getInviteEndDate(invite) {
+  return invite.tripData?.endDate || invite.endDate || invite.tripEndDate || null;
+}
+
+function getInviteBudget(invite) {
+  return invite.tripData?.budget || invite.budget || invite.tripBudget || null;
+}
+
+function getInviteWithGroup(invite) {
+  if (typeof invite.tripData?.withGroup === "boolean") return invite.tripData.withGroup;
+  if (typeof invite.withGroup === "boolean") return invite.withGroup;
+  if (typeof invite.isGroupTrip === "boolean") return invite.isGroupTrip;
+  return false;
+}
+
+function getPreviewTripData(invite) {
+  return {
+    title: getInviteTitle(invite),
+    tripTitle: getInviteTitle(invite),
+    tripName: getInviteTitle(invite),
+    name: getInviteTitle(invite),
+    location: invite.tripData?.location || invite.location || invite.tripLocation || "",
+    description: getInviteDescription(invite),
+    startDate: getInviteStartDate(invite),
+    endDate: getInviteEndDate(invite),
+    budget: getInviteBudget(invite),
+    withGroup: getInviteWithGroup(invite),
+    allowedUsers: Array.isArray(invite.allowedUsers) ? invite.allowedUsers : [],
+    memberIds: Array.isArray(invite.memberIds) ? invite.memberIds : [],
+    sharedWith: Array.isArray(invite.sharedWith) ? invite.sharedWith : [],
+  };
+}
+
 export default function InvitesScreen() {
   const router = useRouter();
   const currentUser = auth.currentUser;
@@ -70,49 +150,73 @@ export default function InvitesScreen() {
 
     const invitesRef = collection(db, "users", currentUser.uid, "invites");
 
-    return onSnapshot(invitesRef, async (snapshot) => {
-      const rawInvites = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return onSnapshot(
+      invitesRef,
+      async (snapshot) => {
+        const rawInvites = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      const invitesWithTripData = await Promise.all(
-        rawInvites.map(async (invite) => {
-          const tripOwnerId = getInviteOwnerId(invite);
-          const tripId = getInviteTripId(invite);
+        const invitesWithTripData = await Promise.all(
+          rawInvites.map(async (invite) => {
+            const tripOwnerId = getInviteOwnerId(invite);
+            const tripId = getInviteTripId(invite);
+            const previewTripData = getPreviewTripData(invite);
 
-          if (!tripOwnerId || !tripId) {
-            return {
-              ...invite,
-              tripOwnerId,
-              tripId,
-              tripData: null,
-            };
-          }
+            if (!tripOwnerId || !tripId) {
+              return { ...invite, tripOwnerId, tripId, tripData: previewTripData };
+            }
 
-          try {
-            const tripRef = doc(db, "users", tripOwnerId, "trips", tripId);
-            const tripDocSnap = await getDoc(tripRef);
+            try {
+              const tripRef = doc(db, "users", tripOwnerId, "trips", tripId);
+              const tripDocSnap = await getDoc(tripRef);
 
-            return {
-              ...invite,
-              tripOwnerId,
-              tripId,
-              tripData: tripDocSnap.exists() ? tripDocSnap.data() : null,
-            };
-          } catch (error) {
-            console.log("Error loading invite trip:", error);
-            return {
-              ...invite,
-              tripOwnerId,
-              tripId,
-              tripData: null,
-            };
-          }
-        })
-      );
+              if (tripDocSnap.exists()) {
+                return {
+                  ...invite,
+                  tripOwnerId,
+                  tripId,
+                  tripData: {
+                    ...previewTripData,
+                    ...tripDocSnap.data(),
+                  },
+                };
+              }
 
-      setInvites(invitesWithTripData);
-      setLoading(false);
-    });
+              return { ...invite, tripOwnerId, tripId, tripData: previewTripData };
+            } catch (error) {
+              console.log("Trip preview read blocked or failed, using invite data:", error);
+              return { ...invite, tripOwnerId, tripId, tripData: previewTripData };
+            }
+          })
+        );
+
+        setInvites(invitesWithTripData);
+        setLoading(false);
+      },
+      (error) => {
+        console.log("Error loading invites:", error);
+        setInvites([]);
+        setLoading(false);
+      }
+    );
   }, [currentUser]);
+
+  async function copyItineraryToAcceptedUser(tripOwnerId, tripId, invitedUid) {
+    const ownerItemsRef = collection(db, "users", tripOwnerId, "trips", tripId, "itinerary");
+    const invitedItemsRef = collection(db, "users", invitedUid, "trips", tripId, "itinerary");
+
+    const ownerItemsSnap = await getDocs(ownerItemsRef);
+
+    const writes = ownerItemsSnap.docs.map((itemDoc) => {
+      const newItemRef = doc(invitedItemsRef, itemDoc.id);
+      return setDoc(newItemRef, {
+        ...itemDoc.data(),
+        copiedFromOwnerUid: tripOwnerId,
+        copiedAt: serverTimestamp(),
+      }, { merge: true });
+    });
+
+    await Promise.all(writes);
+  }
 
   async function acceptInvite(invite) {
     if (!currentUser) return;
@@ -129,40 +233,22 @@ export default function InvitesScreen() {
 
     try {
       const ownerTripRef = doc(db, "users", tripOwnerId, "trips", tripId);
-      const ownerTripSnap = await getDoc(ownerTripRef);
 
-      if (!ownerTripSnap.exists()) {
-        throw new Error("Trip no longer exists.");
+      let ownerTripData = {};
+      try {
+        const ownerTripSnap = await getDoc(ownerTripRef);
+        if (ownerTripSnap.exists()) {
+          ownerTripData = ownerTripSnap.data() || {};
+        }
+      } catch (readError) {
+        console.log("Owner trip read blocked before membership update:", readError);
       }
 
-      const ownerTripData = ownerTripSnap.data() || {};
-
-      const mergedAllowedUsers = Array.from(
-        new Set([
-          ...(Array.isArray(ownerTripData.allowedUsers)
-            ? ownerTripData.allowedUsers
-            : []),
-          currentUser.uid,
-        ])
-      );
-
-      const mergedMemberIds = Array.from(
-        new Set([
-          ...(Array.isArray(ownerTripData.memberIds)
-            ? ownerTripData.memberIds
-            : []),
-          currentUser.uid,
-        ])
-      );
-
-      const mergedSharedWith = Array.from(
-        new Set([
-          ...(Array.isArray(ownerTripData.sharedWith)
-            ? ownerTripData.sharedWith
-            : []),
-          currentUser.uid,
-        ])
-      );
+      const previewTripData = getPreviewTripData(invite);
+      const baseTripData = {
+        ...previewTripData,
+        ...ownerTripData,
+      };
 
       await updateDoc(ownerTripRef, {
         allowedUsers: arrayUnion(currentUser.uid),
@@ -172,19 +258,37 @@ export default function InvitesScreen() {
         updatedAt: serverTimestamp(),
       });
 
+      const mergedAllowedUsers = Array.from(
+        new Set([
+          ...(Array.isArray(baseTripData.allowedUsers) ? baseTripData.allowedUsers : []),
+          currentUser.uid,
+        ])
+      );
+
+      const mergedMemberIds = Array.from(
+        new Set([
+          ...(Array.isArray(baseTripData.memberIds) ? baseTripData.memberIds : []),
+          currentUser.uid,
+        ])
+      );
+
+      const mergedSharedWith = Array.from(
+        new Set([
+          ...(Array.isArray(baseTripData.sharedWith) ? baseTripData.sharedWith : []),
+          currentUser.uid,
+        ])
+      );
+
       const invitedUserTripRef = doc(db, "users", currentUser.uid, "trips", tripId);
 
       await setDoc(
         invitedUserTripRef,
         {
-          ...ownerTripData,
+          ...baseTripData,
           id: tripId,
-
-          // shared trip markers
           isSharedTrip: true,
           acceptedFromInvite: true,
           withGroup: true,
-
           tripOwnerId,
           ownerId: tripOwnerId,
           originalTripId: tripId,
@@ -192,32 +296,37 @@ export default function InvitesScreen() {
           sharedTripOwnerId: tripOwnerId,
           sourceTripId: tripId,
           sourceTripOwnerId: tripOwnerId,
-
           allowedUsers: mergedAllowedUsers,
           memberIds: mergedMemberIds,
           sharedWith: mergedSharedWith,
-
           updatedAt: serverTimestamp(),
           acceptedAt: serverTimestamp(),
-          createdAt: ownerTripData.createdAt || serverTimestamp(),
+          createdAt: baseTripData.createdAt || serverTimestamp(),
         },
         { merge: true }
       );
 
+      await copyItineraryToAcceptedUser(tripOwnerId, tripId, currentUser.uid);
+
       if (invite.chatId) {
-        await updateDoc(doc(db, "groupchats", invite.chatId), {
-          members: arrayUnion(currentUser.uid),
-        });
+        try {
+          await updateDoc(doc(db, "groupchats", invite.chatId), {
+            members: arrayUnion(currentUser.uid),
+          });
+        } catch (chatError) {
+          console.log("Group chat update failed:", chatError);
+        }
       }
 
       await deleteDoc(doc(db, "users", currentUser.uid, "invites", invite.id));
 
-      router.push({
+      router.replace({
         pathname: "/tripitinerary",
         params: {
           tripId: String(tripId),
           sourceTripId: String(tripId),
           sourceTripOwnerId: String(tripOwnerId),
+          title: String(getInviteTitle({ ...invite, tripData: baseTripData })),
         },
       });
     } catch (err) {
@@ -241,31 +350,36 @@ export default function InvitesScreen() {
   }
 
   function formatDate(timestamp) {
-    if (!timestamp?.toDate) return "";
-    return timestamp.toDate().toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    if (!timestamp) return "";
+
+    if (typeof timestamp?.toDate === "function") {
+      return timestamp.toDate().toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+
+    const parsed = new Date(timestamp);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+
+    return "";
   }
 
   function getFallbackLocation(invite) {
     return (
-      invite.tripData?.location ||
-      invite.location ||
-      invite.tripLocation ||
+      formatLocation(invite.tripData?.location) ||
+      formatLocation(invite.location) ||
+      formatLocation(invite.tripLocation) ||
       invite.tripName ||
       invite.tripTitle ||
       "Trip"
-    );
-  }
-
-  function getFallbackDescription(invite) {
-    return (
-      invite.tripData?.description ||
-      invite.description ||
-      invite.tripDescription ||
-      ""
     );
   }
 
@@ -274,12 +388,14 @@ export default function InvitesScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={BG} />
 
       <View style={s.header}>
-        <Pressable onPress={() => router.back()} style={s.iconButton} hitSlop={8}>
+        <Pressable
+          onPress={() => router.dismissTo("/dashboard")}
+          style={s.iconButton}
+          hitSlop={8}
+        >
           <Ionicons name="chevron-back" size={24} color={TEXT} />
         </Pressable>
-
         <Text style={s.title}>Invites</Text>
-
         <View style={s.iconButton} />
       </View>
 
@@ -299,6 +415,11 @@ export default function InvitesScreen() {
         <ScrollView contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>
           {invites.map((invite) => {
             const isProcessing = processingId === invite.id;
+            const start = formatDate(getInviteStartDate(invite));
+            const end = formatDate(getInviteEndDate(invite));
+            const budget = getInviteBudget(invite);
+            const description = getInviteDescription(invite);
+            const isGroup = getInviteWithGroup(invite);
 
             return (
               <View key={invite.id} style={s.card}>
@@ -311,10 +432,7 @@ export default function InvitesScreen() {
 
                   <View style={{ flex: 1 }}>
                     <Text style={s.senderLabel}>
-                      Invited by{" "}
-                      <Text style={s.senderName}>
-                        {invite.fromUsername || "Someone"}
-                      </Text>
+                      Invited by <Text style={s.senderName}>{invite.fromUsername || "Someone"}</Text>
                     </Text>
                     <Text style={s.inviteDate}>{formatDate(invite.createdAt)}</Text>
                   </View>
@@ -323,49 +441,33 @@ export default function InvitesScreen() {
                 <View style={s.tripCard}>
                   <Text style={s.tripLocation}>{getFallbackLocation(invite)}</Text>
 
-                  {invite.tripData ? (
-                    <>
-                      {[
-                        {
-                          icon: "calendar-outline",
-                          text: `${formatDate(invite.tripData.startDate)} → ${formatDate(invite.tripData.endDate)}`,
-                        },
-                        invite.tripData.budget && {
-                          icon: "cash-outline",
-                          text: `$${invite.tripData.budget}`,
-                        },
-                        invite.tripData.description && {
-                          icon: "document-text-outline",
-                          text: invite.tripData.description,
-                        },
-                        {
-                          icon: "people-outline",
-                          text: invite.tripData.withGroup ? "Group trip" : "Solo trip",
-                        },
-                      ]
-                        .filter(Boolean)
-                        .map(({ icon, text }) => (
-                          <View key={`${icon}-${text}`} style={s.detailRow}>
-                            <Ionicons name={icon} size={14} color={MUTED} />
-                            <Text style={s.detailText}>{text}</Text>
-                          </View>
-                        ))}
-                    </>
-                  ) : (
-                    <>
-                      {!!getFallbackDescription(invite) && (
-                        <View style={s.detailRow}>
-                          <Ionicons
-                            name="document-text-outline"
-                            size={14}
-                            color={MUTED}
-                          />
-                          <Text style={s.detailText}>{getFallbackDescription(invite)}</Text>
-                        </View>
-                      )}
-                      <Text style={s.noTripText}>Trip details unavailable</Text>
-                    </>
+                  {!!(start || end) && (
+                    <View style={s.detailRow}>
+                      <Ionicons name="calendar-outline" size={14} color={MUTED} />
+                      <Text style={s.detailText}>
+                        {start || "Unknown"} {end ? `→ ${end}` : ""}
+                      </Text>
+                    </View>
                   )}
+
+                  {!!budget && (
+                    <View style={s.detailRow}>
+                      <Ionicons name="cash-outline" size={14} color={MUTED} />
+                      <Text style={s.detailText}>${budget}</Text>
+                    </View>
+                  )}
+
+                  {!!description && (
+                    <View style={s.detailRow}>
+                      <Ionicons name="document-text-outline" size={14} color={MUTED} />
+                      <Text style={s.detailText}>{description}</Text>
+                    </View>
+                  )}
+
+                  <View style={s.detailRow}>
+                    <Ionicons name="people-outline" size={14} color={MUTED} />
+                    <Text style={s.detailText}>{isGroup ? "Group trip" : "Solo trip"}</Text>
+                  </View>
                 </View>
 
                 <View style={s.buttonRow}>
@@ -409,7 +511,6 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: BG,
   },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -419,7 +520,6 @@ const s = StyleSheet.create({
     paddingBottom: 10,
     backgroundColor: BG,
   },
-
   iconButton: {
     width: 36,
     height: 36,
@@ -430,20 +530,17 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
   },
-
   title: {
     fontSize: 22,
     fontWeight: "700",
     color: BLUE,
   },
-
   emptyState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 28,
   },
-
   emptyIconWrap: {
     width: 74,
     height: 74,
@@ -455,13 +552,11 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 14,
   },
-
   emptyText: {
     fontSize: 18,
     fontWeight: "700",
     color: TEXT,
   },
-
   emptySubtext: {
     marginTop: 6,
     textAlign: "center",
@@ -469,13 +564,11 @@ const s = StyleSheet.create({
     color: MUTED,
     lineHeight: 19,
   },
-
   list: {
     padding: 16,
     gap: 14,
     paddingBottom: 28,
   },
-
   card: {
     backgroundColor: CARD,
     borderRadius: 18,
@@ -483,14 +576,12 @@ const s = StyleSheet.create({
     borderColor: BORDER,
     padding: 16,
   },
-
   senderRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     marginBottom: 14,
   },
-
   avatar: {
     width: 44,
     height: 44,
@@ -501,29 +592,24 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   avatarLetter: {
     fontSize: 17,
     fontWeight: "700",
     color: BLUE,
   },
-
   senderLabel: {
     fontSize: 14,
     color: MUTED,
   },
-
   senderName: {
     fontWeight: "700",
     color: TEXT,
   },
-
   inviteDate: {
     fontSize: 12,
     color: MUTED,
     marginTop: 2,
   },
-
   tripCard: {
     backgroundColor: CARD_ALT,
     borderRadius: 14,
@@ -533,39 +619,27 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
   },
-
   tripLocation: {
     fontSize: 17,
     fontWeight: "700",
     color: TEXT,
     marginBottom: 4,
   },
-
   detailRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-
   detailText: {
     fontSize: 13,
     color: MUTED,
     flex: 1,
     lineHeight: 18,
   },
-
-  noTripText: {
-    fontSize: 13,
-    color: MUTED,
-    marginTop: 2,
-    fontStyle: "italic",
-  },
-
   buttonRow: {
     flexDirection: "row",
     gap: 10,
   },
-
   declineButton: {
     flex: 1,
     height: 46,
@@ -576,13 +650,11 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   declineText: {
     fontSize: 15,
     fontWeight: "700",
     color: MUTED,
   },
-
   acceptButton: {
     flex: 1,
     height: 46,
@@ -596,7 +668,6 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
-
   acceptText: {
     fontSize: 15,
     fontWeight: "700",

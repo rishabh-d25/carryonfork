@@ -41,22 +41,42 @@ export default function Signup() {
 
   if (!fontsLoaded) return null;
 
-  const onSignUpPress = async () => {
-    try {
-      const userinfo = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      const uid = userinfo.user.uid;
+const onSignUpPress = async () => {
+  const trimmedEmail = email.trim();
+  const trimmedUsername = username.trim();
+  const trimmedPassword = password;
 
-      await setDoc(doc(db, "users", uid), {
-        username: username.trim(),
-        email: email.trim(),
-      });
+  // 🚨 BASIC VALIDATION
+  if (!trimmedEmail || !trimmedUsername || !trimmedPassword) {
+    Alert.alert("Missing fields", "Please fill out all fields.");
+    return;
+  }
 
-      Alert.alert("Success! Welcome to CarryOn!");
-      router.push("/dashboard");
-    } catch (e) {
-      Alert.alert("Sign up error", e.message);
-    }
-  };
+  if (!trimmedEmail.includes("@") || !trimmedEmail.includes(".")) {
+    Alert.alert("Invalid email", "Please enter a valid email address.");
+    return;
+  }
+
+  try {
+    const userinfo = await createUserWithEmailAndPassword(
+      auth,
+      trimmedEmail,
+      trimmedPassword
+    );
+
+    const uid = userinfo.user.uid;
+
+    await setDoc(doc(db, "users", uid), {
+      username: trimmedUsername,
+      email: trimmedEmail,
+    });
+
+    Alert.alert("Success! Welcome to CarryOn!");
+    router.replace("/dashboard"); // 🔥 also prevents stacking
+  } catch (e) {
+    Alert.alert("Sign up error", e.message);
+  }
+};
 
   const onBack = () => router.back();
 

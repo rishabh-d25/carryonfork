@@ -577,9 +577,21 @@ export default function TripItemDetails() {
           keyboardDismissMode="on-drag"
         >
           <View style={styles.header}>
-            <Pressable onPress={() => router.back()} style={styles.iconButton}>
-              <Ionicons name="chevron-back" size={24} color={TEXT} />
-            </Pressable>
+<Pressable
+  onPress={() =>
+    router.replace({
+      pathname: "/tripitinerary",
+      params: {
+        tripId,
+        sourceTripId,
+        sourceTripOwnerId,
+      },
+    })
+  }
+  style={styles.iconButton}
+>
+  <Ionicons name="chevron-back" size={24} color={TEXT} />
+</Pressable>
 
             <Text style={styles.headerTitle}>Activity Details</Text>
 

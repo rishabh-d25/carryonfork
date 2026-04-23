@@ -35,8 +35,7 @@ function timeAgo(timestamp) {
 
 export default function JournalScreen() {
   const router = useRouter();
-  const { journalId } = useLocalSearchParams();
-
+const { journalId, tripId, title } = useLocalSearchParams();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [pendingImages, setPendingImages] = useState([]);
@@ -132,9 +131,18 @@ export default function JournalScreen() {
 
       
       <View style={s.header}>
-        <Pressable onPress={() => router.back()} style={s.iconBtn} hitSlop={8}>
-          <Ionicons name="chevron-back" size={24} color="#111827" />
-        </Pressable>
+      <Pressable
+        onPress={() =>     router.replace({
+      pathname: "/maintrip",
+      params: { tripId, title},
+    })
+  }
+        
+        style={s.iconBtn}
+        hitSlop={8}
+      >
+        <Ionicons name="chevron-back" size={24} color="#111827" />
+      </Pressable>
         <Text style={s.title}>Journal</Text>
         <View style={s.iconBtn} />
       </View>
@@ -227,25 +235,171 @@ export default function JournalScreen() {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fff" },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
-  iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  title: { flex: 1, fontSize: 20, fontWeight: "700", color: "#111", textAlign: "center" },
-  listContent: { paddingHorizontal: 20, paddingBottom: 16, flexGrow: 1 },
-  entryBlock: { marginBottom: 28 },
-  timestamp: { fontSize: 13, fontWeight: "700", color: "#999", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
-  entryText: { fontSize: 14, color: "#333", lineHeight: 21, marginTop: 8 },
-  imageGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  imageThumb: { width: 150, height: 150, borderRadius: 10, backgroundColor: "#f0f0f0" },
-  imageFull: { width: "100%", height: 220, borderRadius: 10, backgroundColor: "#f0f0f0" },
-  composer: { borderTopWidth: 1, borderTopColor: "#eee", paddingHorizontal: 16, paddingTop: 10, paddingBottom: 20, backgroundColor: "#fff" },
-  composerLabel: { fontSize: 14, fontWeight: "600", color: "#111", marginBottom: 8 },
-  previewThumb: { width: 72, height: 72, borderRadius: 10, backgroundColor: "#eee" },
-  removeBtn: { position: "absolute", top: -6, right: -6, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10 },
-  addMoreTile: { width: 72, height: 72, borderRadius: 10, borderWidth: 1.5, borderColor: "#4F6BFF", borderStyle: "dashed", alignItems: "center", justifyContent: "center", backgroundColor: "#f0f3ff" },
-  inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  cameraBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#f0f3ff", alignItems: "center", justifyContent: "center", marginBottom: 1 },
-  textInput: { flex: 1, borderWidth: 1, borderColor: "#ddd", borderRadius: 20, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, fontSize: 14, color: "#111", backgroundColor: "#fafafa", maxHeight: 100 },
-  submitBtn: { backgroundColor: "#4F6BFF", borderRadius: 20, width: 38, height: 38, alignItems: "center", justifyContent: "center", marginBottom: 1 },
-  submitBtnDisabled: { opacity: 0.4 },
+  safe: {
+    flex: 1,
+    backgroundColor: "#DCE6FF",
+  },
+
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    backgroundColor: "#DCE6FF",
+  },
+
+
+
+  title: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#3F63F3",
+    textAlign: "center",
+  },
+
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    paddingTop: 8,
+    flexGrow: 1,
+  },
+
+  entryBlock: {
+    marginBottom: 18,
+    backgroundColor: "#D4DEFF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+    borderRadius: 16,
+    padding: 14,
+  },
+
+  timestamp: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#6B7280",
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  entryText: {
+    fontSize: 14,
+    color: "#1F2937",
+    lineHeight: 21,
+    marginTop: 8,
+  },
+
+  imageGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+
+  imageThumb: {
+    width: 150,
+    height: 150,
+    borderRadius: 10,
+    backgroundColor: "#C2D0FF",
+  },
+
+  imageFull: {
+    width: "100%",
+    height: 220,
+    borderRadius: 10,
+    backgroundColor: "#C2D0FF",
+  },
+
+  composer: {
+    borderTopWidth: 1,
+    borderTopColor: "#B4C6FF",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 20,
+    backgroundColor: "#DCE6FF",
+  },
+
+  composerLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#3F63F3",
+    marginBottom: 8,
+  },
+
+  previewThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    backgroundColor: "#C2D0FF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+  },
+
+  removeBtn: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 10,
+  },
+
+  addMoreTile: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#4F6BFF",
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF2FF",
+  },
+
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+  },
+
+  cameraBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#EEF2FF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 1,
+  },
+
+  textInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
+    fontSize: 14,
+    color: "#111",
+    backgroundColor: "#EEF2FF",
+    maxHeight: 100,
+  },
+
+  submitBtn: {
+    backgroundColor: "#4F6BFF",
+    borderRadius: 20,
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 1,
+  },
+
+  submitBtnDisabled: {
+    opacity: 0.4,
+  },
 });

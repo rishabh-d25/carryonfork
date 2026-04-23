@@ -597,13 +597,17 @@ export default function TravelHistory() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.topRow}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.iconButton}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-          </TouchableOpacity>
+<TouchableOpacity
+  onPress={() =>
+    router.dismissTo({
+      pathname: "/dashboard",
+
+    })
+  }
+style={styles.iconButton}
+>
+  <Ionicons name="chevron-back" size={24} color="#111827" />
+</TouchableOpacity>
         </View>
 
         <View style={styles.header}>

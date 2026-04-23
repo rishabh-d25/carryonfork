@@ -9,7 +9,7 @@ import {
   orderBy,
   query,
 } from "firebase/firestore";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -121,10 +121,70 @@ export default function TripItinerary() {
   const paramSourceTripOwnerId = params.sourceTripOwnerId
     ? String(params.sourceTripOwnerId)
     : "";
+  const initialTripTitle = params.title ? String(params.title) : "";
 
   const [items, setItems] = useState([]);
   const [sourceTripOwnerId, setSourceTripOwnerId] = useState("");
   const [sourceTripId, setSourceTripId] = useState("");
+  const [tripTitle, setTripTitle] = useState(initialTripTitle);
+
+  useEffect(() => {
+    async function loadTripInfo() {
+      if (!tripId || !auth.currentUser?.uid) return;
+
+      try {
+        const currentUid = auth.currentUser.uid;
+
+        let resolvedOwnerId = paramSourceTripOwnerId || currentUid;
+        let resolvedTripId = paramSourceTripId || tripId;
+
+        const myTripRef = doc(db, "users", currentUid, "trips", tripId);
+        const myTripSnap = await getDoc(myTripRef);
+
+        if (myTripSnap.exists()) {
+          const myTripData = myTripSnap.data() || {};
+
+          if (
+            myTripData.isSharedTrip &&
+            myTripData.sharedTripOwnerId &&
+            myTripData.sharedTripId
+          ) {
+            resolvedOwnerId = String(myTripData.sharedTripOwnerId);
+            resolvedTripId = String(myTripData.sharedTripId);
+          } else if (
+            myTripData.acceptedFromInvite &&
+            myTripData.tripOwnerId &&
+            myTripData.originalTripId
+          ) {
+            resolvedOwnerId = String(myTripData.tripOwnerId);
+            resolvedTripId = String(myTripData.originalTripId);
+          }
+        }
+
+        setSourceTripOwnerId(resolvedOwnerId);
+        setSourceTripId(resolvedTripId);
+
+        const tripRef = doc(db, "users", resolvedOwnerId, "trips", resolvedTripId);
+        const tripSnap = await getDoc(tripRef);
+
+        if (!tripSnap.exists()) return;
+
+        const tripData = tripSnap.data() || {};
+
+        setTripTitle(
+          tripData.title ||
+          tripData.tripName ||
+          tripData.name ||
+          initialTripTitle ||
+          ""
+        );
+      } catch (error) {
+        console.log("loadTripInfo error:", error);
+      }
+    }
+
+    loadTripInfo();
+  }, [tripId, paramSourceTripId, paramSourceTripOwnerId, initialTripTitle]);
 
   const subscribeToItems = useCallback(() => {
     if (!tripId || !auth.currentUser?.uid) return () => {};
@@ -136,33 +196,29 @@ export default function TripItinerary() {
       try {
         const currentUid = auth.currentUser.uid;
 
-        // ✅ FIRST trust the params coming back from AddActivity / details screens
         let resolvedOwnerId = paramSourceTripOwnerId || currentUid;
         let resolvedTripId = paramSourceTripId || tripId;
 
-        // ✅ Only fall back to trip-doc lookup if params were not provided
-        if (!paramSourceTripOwnerId || !paramSourceTripId) {
-          const myTripRef = doc(db, "users", currentUid, "trips", tripId);
-          const myTripSnap = await getDoc(myTripRef);
+        const myTripRef = doc(db, "users", currentUid, "trips", tripId);
+        const myTripSnap = await getDoc(myTripRef);
 
-          if (myTripSnap.exists()) {
-            const myTripData = myTripSnap.data() || {};
+        if (myTripSnap.exists()) {
+          const myTripData = myTripSnap.data() || {};
 
-            if (
-              myTripData.isSharedTrip &&
-              myTripData.sharedTripOwnerId &&
-              myTripData.sharedTripId
-            ) {
-              resolvedOwnerId = String(myTripData.sharedTripOwnerId);
-              resolvedTripId = String(myTripData.sharedTripId);
-            } else if (
-              myTripData.acceptedFromInvite &&
-              myTripData.tripOwnerId &&
-              myTripData.originalTripId
-            ) {
-              resolvedOwnerId = String(myTripData.tripOwnerId);
-              resolvedTripId = String(myTripData.originalTripId);
-            }
+          if (
+            myTripData.isSharedTrip &&
+            myTripData.sharedTripOwnerId &&
+            myTripData.sharedTripId
+          ) {
+            resolvedOwnerId = String(myTripData.sharedTripOwnerId);
+            resolvedTripId = String(myTripData.sharedTripId);
+          } else if (
+            myTripData.acceptedFromInvite &&
+            myTripData.tripOwnerId &&
+            myTripData.originalTripId
+          ) {
+            resolvedOwnerId = String(myTripData.tripOwnerId);
+            resolvedTripId = String(myTripData.originalTripId);
           }
         }
 
@@ -276,33 +332,35 @@ export default function TripItinerary() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-      <View style={styles.header}>
-        <Pressable
-          onPress={() =>
-            router.push({
-              pathname: "/maintrip",
-              params: {
-                tripId: String(tripId),
-                sourceTripId: String(sourceTripId || tripId),
-                sourceTripOwnerId: String(sourceTripOwnerId || ""),
-              },
-            })
-          }
-          style={styles.headerIcon}
-        >
-          <Ionicons name="chevron-back" size={24} color={TEXT} />
-        </Pressable>
+        <View style={styles.header}>
+          <Pressable
+            onPress={() =>
+              router.replace({
+                pathname: "/maintrip",
+                params: {
+                  tripId: String(tripId),
+                  sourceTripId: String(resolvedTripForNav),
+                  sourceTripOwnerId: String(resolvedOwnerForNav),
+                  title: tripTitle,
+                },
+              })
+            }
+            style={styles.headerIcon}
+          >
+            <Ionicons name="chevron-back" size={24} color={TEXT} />
+          </Pressable>
 
           <Text style={styles.headerTitle}>Trip Itinerary</Text>
 
           <Pressable
             onPress={() =>
-              router.push({
+              router.replace({
                 pathname: "/addactivity",
                 params: {
                   tripId: String(tripId),
                   sourceTripId: String(resolvedTripForNav),
                   sourceTripOwnerId: String(resolvedOwnerForNav),
+                  title: tripTitle,
                 },
               })
             }
@@ -333,13 +391,14 @@ export default function TripItinerary() {
                     key={item.id}
                     style={styles.card}
                     onPress={() => {
-                      router.push({
+                      router.replace({
                         pathname: "/tripitemdetails",
                         params: {
                           tripId: String(tripId),
                           itemId: String(item.id),
                           sourceTripId: String(resolvedTripForNav),
                           sourceTripOwnerId: String(resolvedOwnerForNav),
+                          title: tripTitle,
                         },
                       });
                     }}

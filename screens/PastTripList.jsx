@@ -211,9 +211,12 @@ export default function PastTripList() {
       <StatusBar barStyle="dark-content" />
 
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={24} color={TEXT} />
-        </Pressable>
+<Pressable
+  onPress={() => router.dismissTo("/dashboard")}
+  style={styles.backBtn}
+>
+  <Ionicons name="chevron-back" size={24} color={TEXT} />
+</Pressable>
 
         <Text style={styles.headerTitle}>Past Trips</Text>
 
@@ -239,13 +242,13 @@ export default function PastTripList() {
                 key={trip.id}
                 style={styles.card}
                 onPress={() =>
-                  router.push({
-                    pathname: "/maintrip",
-                    params: {
-                      tripId: trip.id,
-                      title: trip.title || trip.location || "Trip",
-                    },
-                  })
+            router.push({
+              pathname: "/maintrip",
+              params: {
+                tripId: trip.id,
+                title: trip.title || trip.location || "Trip",
+              },
+            })
                 }
               >
                 {trip.previewImage ? (

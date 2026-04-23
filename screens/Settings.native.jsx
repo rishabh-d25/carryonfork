@@ -1,18 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  SafeAreaView,
+  StatusBar,
+} from "react-native";
 import MapView, { Marker } from "react-native-maps";
 
 import { deleteDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
 const API_KEY = "252b650d2acb4397ab93916025da875e";
-
-const BLUE = "#3F63F3";
-const BG = "#DCE6FF";
-const BORDER = "#B4C6FF";
-const TEXT = "#1F2937";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -58,14 +62,20 @@ export default function SettingsScreen() {
 
   const geocode = async () => {
     if (!address) return;
-    const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(address)}&key=${API_KEY}`);
+    const res = await fetch(
+      `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(
+        address
+      )}&key=${API_KEY}`
+    );
     const data = await res.json();
     const loc = data.results?.[0]?.geometry;
     if (loc) updateMap(loc.lat, loc.lng);
   };
 
   const reverseGeocode = async (lat, lng) => {
-    const res = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${API_KEY}`);
+    const res = await fetch(
+      `https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${API_KEY}`
+    );
     const data = await res.json();
     const mapaddress = data.results?.[0]?.components;
     if (!mapaddress) return;
@@ -96,7 +106,6 @@ export default function SettingsScreen() {
       });
       Alert.alert("Saved!", "Your location has been saved.");
     } catch (e) {
-      console.log(e);
       Alert.alert("Error saving");
     }
   };
@@ -104,21 +113,16 @@ export default function SettingsScreen() {
   const deleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "Are you sure you want to permanently delete your account? This cannot be undone.",
+      "Are you sure you want to permanently delete your account?",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            try {
-              await deleteDoc(doc(db, "users", userId));
-              await auth.currentUser?.delete();
-              router.replace("/");
-            } catch (e) {
-              console.log(e);
-              Alert.alert("Error", "Could not delete account. You may need to re-login first.");
-            }
+            await deleteDoc(doc(db, "users", userId));
+            await auth.currentUser?.delete();
+            router.replace("/auth");
           },
         },
       ]
@@ -126,134 +130,154 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
-          <Ionicons name="chevron-back" size={24} color={TEXT} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Settings</Text>
-        <View style={{ width: 36 }} />
-      </View>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {[
-        { label: "Street", val: street, set: setStreet },
-        { label: "City", val: city, set: setCity },
-        { label: "State", val: state, set: setState },
-        { label: "ZIP", val: zip, set: setZip },
-      ].map((f) => (
-        <View key={f.label}>
-          <Text style={styles.label}>{f.label}</Text>
-          <TextInput
-            style={styles.input}
-            value={f.val}
-            onChangeText={f.set}
-            keyboardType={f.label === "ZIP" ? "numeric" : "default"}
-            placeholderTextColor="#B8B8B8"
-            placeholder={f.label}
-          />
+      <View style={styles.container}>
+        <View style={styles.topRow}>
+          <TouchableOpacity
+            onPress={() =>
+              router.dismissTo({
+                pathname: "/dashboard",
+              })
+            }
+            style={styles.iconButton}
+          >
+            <Ionicons name="chevron-back" size={24} color="#111827" />
+          </TouchableOpacity>
+
+          <Text style={styles.headerTitle}>Settings</Text>
+
+          <View style={styles.iconButton} />
         </View>
-      ))}
 
-      <TouchableOpacity style={styles.button} onPress={geocode}>
-        <Text style={styles.btnText}>Show on Map</Text>
-      </TouchableOpacity>
+        {[
+          { label: "Street", val: street, set: setStreet },
+          { label: "City", val: city, set: setCity },
+          { label: "State", val: state, set: setState },
+          { label: "ZIP", val: zip, set: setZip },
+        ].map((f) => (
+          <View key={f.label}>
+            <Text style={styles.label}>{f.label}</Text>
+            <TextInput
+              style={styles.input}
+              value={f.val}
+              onChangeText={f.set}
+              placeholder={f.label}
+            />
+          </View>
+        ))}
 
-      <TouchableOpacity style={[styles.button, styles.save]} onPress={saveLocation}>
-        <Text style={styles.btnText}>Save Location</Text>
-      </TouchableOpacity>
+        <TouchableOpacity style={styles.button} onPress={geocode}>
+          <Text style={styles.btnText}>Show on Map</Text>
+        </TouchableOpacity>
 
-      <View style={styles.mapWrap}>
-        <MapView style={styles.map} region={region} onPress={onMapPress}>
-          <Marker coordinate={marker} />
-        </MapView>
+        <TouchableOpacity style={[styles.button, styles.save]} onPress={saveLocation}>
+          <Text style={styles.btnText}>Save Location</Text>
+        </TouchableOpacity>
+
+        <View style={styles.mapWrap}>
+          <MapView style={styles.map} region={region} onPress={onMapPress}>
+            <Marker coordinate={marker} />
+          </MapView>
+        </View>
+
+        <TouchableOpacity style={styles.deleteBtn} onPress={deleteAccount}>
+          <Text style={styles.deleteBtnText}>Delete Account</Text>
+        </TouchableOpacity>
       </View>
-
-      <TouchableOpacity style={styles.deleteBtn} onPress={deleteAccount}>
-        <Text style={styles.deleteBtnText}>Delete Account</Text>
-      </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: "#DCE6FF",
+  },
+
   container: {
     flex: 1,
-    backgroundColor: BG,
-    padding: 16,
-    paddingTop: 50,
+    paddingHorizontal: 18,
   },
+
   topRow: {
+    paddingTop: 6,
+    paddingBottom: 6,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 18,
   },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#C9D7FF",
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  title: {
+
+
+
+  headerTitle: {
+    flex: 1,
+    textAlign: "center",
     fontSize: 18,
     fontWeight: "700",
-    color: BLUE,
+    color: "#3F63F3",
+    marginHorizontal: 8,
   },
+
   label: {
-    fontSize: 15,
-    color: TEXT,
-    marginBottom: 10,
+    fontSize: 14,
+    color: "#3F63F3",
+    marginBottom: 8,
     fontWeight: "600",
   },
+
   input: {
     height: 52,
-    borderWidth: 1.5,
-    borderColor: "#9FB2FF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
     borderRadius: 12,
     backgroundColor: "#EEF2FF",
     paddingHorizontal: 14,
-    fontSize: 15,
-    color: TEXT,
     marginBottom: 14,
   },
+
   button: {
-    backgroundColor: BLUE,
+    backgroundColor: "#5A75F5",
     padding: 14,
     borderRadius: 12,
     alignItems: "center",
     marginBottom: 10,
   },
+
   save: {
-    backgroundColor: "#5A75F5",
+    backgroundColor: "#4F6BFF",
   },
+
   btnText: {
     color: "#fff",
     fontWeight: "700",
-    fontSize: 15,
   },
+
   mapWrap: {
     flex: 1,
     borderRadius: 16,
     overflow: "hidden",
-    marginBottom: 12,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#B4C6FF",
   },
-  map: { flex: 1 },
+
+  map: {
+    flex: 1,
+  },
+
   deleteBtn: {
-    backgroundColor: "#DC2626",
+    backgroundColor: "#EF4444",
     padding: 14,
     borderRadius: 12,
     alignItems: "center",
     marginBottom: 20,
   },
+
   deleteBtnText: {
     color: "#fff",
     fontWeight: "700",
-    fontSize: 15,
   },
 });

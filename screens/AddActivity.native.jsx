@@ -119,6 +119,7 @@ export default function AddActivity() {
     : auth.currentUser?.uid || "";
   const editingId = params.editId ? String(params.editId) : null;
   const presetCategory = params.presetCategory ? String(params.presetCategory) : null;
+  const initialTripTitle = params.title ? String(params.title) : "";
 
   const scrollRef = useRef(null);
   const fieldPositionsRef = useRef({});
@@ -128,6 +129,7 @@ export default function AddActivity() {
   const [loadingEditData, setLoadingEditData] = useState(false);
   const [tripStartDate, setTripStartDate] = useState(null);
   const [tripEndDate, setTripEndDate] = useState(null);
+  const [tripTitle, setTripTitle] = useState(initialTripTitle);
 
   const [tabForms, setTabForms] = useState({
     activity: createEmptyForm(),
@@ -174,6 +176,14 @@ export default function AddActivity() {
 
         const tripData = tripSnap.data() || {};
 
+        setTripTitle(
+          tripData.title ||
+          tripData.tripName ||
+          tripData.name ||
+          initialTripTitle ||
+          ""
+        );
+
         const rawStart = tripData.startDate?.toDate
           ? tripData.startDate.toDate()
           : tripData.startDate
@@ -199,7 +209,7 @@ export default function AddActivity() {
     }
 
     loadTripRange();
-  }, [sourceTripId, sourceTripOwnerId]);
+  }, [sourceTripId, sourceTripOwnerId, initialTripTitle]);
 
   useEffect(() => {
     async function loadEditItem() {
@@ -748,6 +758,7 @@ export default function AddActivity() {
             tripId,
             sourceTripId,
             sourceTripOwnerId,
+            title: tripTitle,
           },
         });
       } catch (error) {
@@ -784,6 +795,7 @@ export default function AddActivity() {
           tripId,
           sourceTripId,
           sourceTripOwnerId,
+          title: tripTitle,
         },
       });
     } catch (error) {
@@ -836,10 +848,10 @@ export default function AddActivity() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
 
- <KeyboardAwareScrollView
-  innerRef={(ref) => {
-    scrollRef.current = ref;
-  }}
+      <KeyboardAwareScrollView
+        innerRef={(ref) => {
+          scrollRef.current = ref;
+        }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -850,7 +862,20 @@ export default function AddActivity() {
         enableAutomaticScroll
       >
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.iconButton}>
+          <Pressable
+            onPress={() =>
+              router.replace({
+                pathname: "/maintrip",
+                params: {
+                  tripId,
+                  sourceTripId,
+                  sourceTripOwnerId,
+                  title: tripTitle,
+                },
+              })
+            }
+            style={styles.iconButton}
+          >
             <Ionicons name="chevron-back" size={24} color={TEXT} />
           </Pressable>
 
@@ -866,6 +891,7 @@ export default function AddActivity() {
                   tripId,
                   sourceTripId,
                   sourceTripOwnerId,
+                  title: tripTitle,
                 },
               })
             }

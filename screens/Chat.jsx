@@ -22,6 +22,7 @@ import {
   collection,
   doc,
   getDoc,
+  setDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -61,7 +62,8 @@ function getMillis(value) {
 
 export default function GroupChatScreen() {
   const router = useRouter();
-  const { chatId } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+  const chatId = params.chatId ? String(params.chatId) : "";
   const currentUser = auth.currentUser;
 
   const [loading, setLoading] = useState(true);
@@ -84,6 +86,11 @@ export default function GroupChatScreen() {
 
   useEffect(() => {
     const loadChatData = async () => {
+      if (!chatId) {
+        setLoading(false);
+        return;
+      }
+
       try {
         const chatSnap = await getDoc(doc(db, "groupchats", chatId));
         if (!chatSnap.exists()) {
@@ -156,8 +163,18 @@ export default function GroupChatScreen() {
 
         setTripData(sourceTripData);
         setTripOwnerId(sourceTripOwnerId);
-        setTripLocation(sourceTripData?.location || "Group Trip");
+        setTripId(sourceTripId || fetchedTripId);
 
+        const rawLocation = sourceTripData?.location;
+
+        const displayLocation =
+          typeof rawLocation === "string"
+            ? rawLocation
+            : rawLocation && typeof rawLocation === "object"
+              ? [rawLocation.city, rawLocation.country].filter(Boolean).join(", ")
+              : "Group Trip";
+
+        setTripLocation(displayLocation || "Group Trip");
         const endDateMillis = getMillis(sourceTripData?.endDate);
         setIsPastTrip(endDateMillis > 0 && endDateMillis < Date.now());
 
@@ -204,27 +221,32 @@ export default function GroupChatScreen() {
       }
     };
 
-    if (chatId) loadChatData();
+    loadChatData();
   }, [chatId, currentUser?.uid]);
 
   useEffect(() => {
     if (!chatId) return;
+
     const q = query(
       collection(db, "groupchats", chatId, "messages"),
       orderBy("sentAt", "asc")
     );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetched = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       setMessages(fetched);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
+
     return () => unsubscribe();
   }, [chatId]);
 
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text || !currentUser || isPastTrip) return;
+    if (!text || !currentUser || !chatId || isPastTrip) return;
+
     setInputText("");
+
     try {
       await addDoc(collection(db, "groupchats", chatId, "messages"), {
         text,
@@ -238,17 +260,21 @@ export default function GroupChatScreen() {
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
+
     setSearching(true);
+
     try {
       const q = query(
         collection(db, "users"),
         where("username", "==", searchQuery.trim())
       );
+
       const snapshot = await getDocs(q);
       const results = snapshot.docs
         .map((d) => ({ uid: d.id, ...d.data() }))
         .filter((u) => u.uid !== currentUser?.uid)
         .filter((u) => !members.find((m) => m.uid === u.uid));
+
       setSearchResults(results);
     } catch (e) {
       console.error("Search error:", e);
@@ -258,21 +284,87 @@ export default function GroupChatScreen() {
   };
 
   const handleSendInvite = async (targetUser) => {
-    if (!tripData || !tripId || !currentUser) return;
+    if (!tripData || !tripId || !currentUser || !chatId) return;
+
     setSendingInvite(targetUser.uid);
+
     try {
       const currentUserDoc = await getDoc(doc(db, "users", currentUser.uid));
-      const currentUsername = currentUserDoc.data()?.username || "Someone";
+      const currentUsername =
+        currentUserDoc.exists() && currentUserDoc.data()?.username
+          ? currentUserDoc.data().username
+          : "Someone";
 
-      await addDoc(collection(db, "users", targetUser.uid, "invites"), {
-        tripId,
-        chatId,
-        fromUid: currentUser.uid,
-        fromUsername: currentUsername,
-        tripOwnerId: tripOwnerId,
-        status: "pending",
-        createdAt: serverTimestamp(),
-      });
+      const ownerUid =
+        tripOwnerId ||
+        tripData?.sharedTripOwnerId ||
+        tripData?.tripOwnerId ||
+        currentUser.uid;
+
+      const canonicalTripId =
+        tripData?.sharedTripId ||
+        tripData?.originalTripId ||
+        tripId;
+
+      const inviteId = `${ownerUid}_${canonicalTripId}`;
+
+      await setDoc(
+        doc(db, "users", targetUser.uid, "invites", inviteId),
+        {
+          toUid: targetUser.uid,
+          fromUid: currentUser.uid,
+          fromUsername: currentUsername,
+
+          tripOwnerId: ownerUid,
+          ownerId: ownerUid,
+          tripId: canonicalTripId,
+          originalTripId: canonicalTripId,
+          sharedTripId: canonicalTripId,
+
+          chatId,
+          status: "pending",
+          withGroup: true,
+
+          tripTitle:
+            tripData?.title ||
+            tripData?.tripTitle ||
+            tripData?.tripName ||
+            tripData?.name ||
+            "",
+
+          tripName:
+            tripData?.tripName ||
+            tripData?.title ||
+            tripData?.tripTitle ||
+            tripData?.name ||
+            "",
+
+          location: tripData?.location || "",
+          tripLocation: tripData?.location || "",
+          description: tripData?.description || "",
+          tripDescription: tripData?.description || "",
+          startDate: tripData?.startDate || null,
+          tripStartDate: tripData?.startDate || null,
+          endDate: tripData?.endDate || null,
+          tripEndDate: tripData?.endDate || null,
+          budget: tripData?.budget ?? null,
+          tripBudget: tripData?.budget ?? null,
+
+          allowedUsers: Array.isArray(tripData?.allowedUsers)
+            ? tripData.allowedUsers
+            : [],
+          memberIds: Array.isArray(tripData?.memberIds)
+            ? tripData.memberIds
+            : [],
+          sharedWith: Array.isArray(tripData?.sharedWith)
+            ? tripData.sharedWith
+            : [],
+
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       setSearchResults((prev) => prev.filter((u) => u.uid !== targetUser.uid));
       setSearchQuery("");
@@ -290,7 +382,9 @@ export default function GroupChatScreen() {
 
   const formatTime = (timestamp) => {
     if (!timestamp?.toDate) return "";
+
     const d = timestamp.toDate();
+
     return (
       d.toLocaleDateString("en-US", {
         month: "short",
@@ -303,6 +397,24 @@ export default function GroupChatScreen() {
         minute: "2-digit",
       })
     );
+  };
+
+const handleBackPress = () => {
+  if (router.canGoBack()) {
+    router.back();
+  } else {
+    router.replace({
+      pathname: "/maintrip",
+      params: {
+        tripId: String(tripId || params.tripId || ""),
+      },
+    });
+  }
+};
+  const handleInputFocus = () => {
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 250);
   };
 
   const renderMessage = ({ item, index }) => {
@@ -321,6 +433,7 @@ export default function GroupChatScreen() {
         {showTimestamp && item.sentAt && (
           <Text style={styles.timestamp}>{formatTime(item.sentAt)}</Text>
         )}
+
         <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
           {!isMe && (
             <View style={styles.avatar}>
@@ -329,10 +442,12 @@ export default function GroupChatScreen() {
               </Text>
             </View>
           )}
+
           <View style={styles.bubbleWrap}>
             {showSender && (
               <Text style={styles.senderName}>{getUsernameById(item.senderId)}</Text>
             )}
+
             <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
               <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
                 {item.text}
@@ -358,12 +473,12 @@ export default function GroupChatScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 90}
       >
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.iconButton} hitSlop={8}>
-            <Ionicons name="chevron-back" size={24} color={TEXT} />
-          </Pressable>
+<Pressable onPress={handleBackPress} style={styles.iconButton} hitSlop={8}>
+  <Ionicons name="chevron-back" size={24} color={TEXT} />
+</Pressable>
 
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>{tripLocation}</Text>
@@ -388,6 +503,7 @@ export default function GroupChatScreen() {
           renderItem={renderMessage}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: false })
           }
@@ -409,6 +525,8 @@ export default function GroupChatScreen() {
               onChangeText={setInputText}
               multiline
               maxLength={500}
+              textAlignVertical="top"
+              onFocus={handleInputFocus}
             />
             <TouchableOpacity
               style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
@@ -422,67 +540,73 @@ export default function GroupChatScreen() {
       </KeyboardAvoidingView>
 
       <Modal visible={showSearch} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Member</Text>
-              <Pressable
-                onPress={() => {
-                  setShowSearch(false);
-                  setSearchQuery("");
-                  setSearchResults([]);
-                }}
-              >
-                <Ionicons name="close" size={24} color={TEXT} />
-              </Pressable>
-            </View>
-
-            <View style={styles.searchRow}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by username"
-                placeholderTextColor="#94A3B8"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoCapitalize="none"
-                onSubmitEditing={handleSearch}
-              />
-              <TouchableOpacity style={styles.searchBtn} onPress={handleSearch}>
-                {searching ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="search" size={18} color="#fff" />
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {searchResults.length === 0 && !searching && searchQuery.trim() !== "" && (
-              <Text style={styles.noResults}>No users found</Text>
-            )}
-
-            {searchResults.map((user) => (
-              <View key={user.uid} style={styles.resultRow}>
-                <View style={styles.resultAvatar}>
-                  <Text style={styles.resultAvatarText}>
-                    {user.username.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <Text style={styles.resultUsername}>{user.username}</Text>
-                <TouchableOpacity
-                  style={styles.inviteBtn}
-                  onPress={() => handleSendInvite(user)}
-                  disabled={sendingInvite === user.uid}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 90}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Member</Text>
+                <Pressable
+                  onPress={() => {
+                    setShowSearch(false);
+                    setSearchQuery("");
+                    setSearchResults([]);
+                  }}
                 >
-                  {sendingInvite === user.uid ? (
+                  <Ionicons name="close" size={24} color={TEXT} />
+                </Pressable>
+              </View>
+
+              <View style={styles.searchRow}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search by username"
+                  placeholderTextColor="#94A3B8"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCapitalize="none"
+                  onSubmitEditing={handleSearch}
+                />
+                <TouchableOpacity style={styles.searchBtn} onPress={handleSearch}>
+                  {searching ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <Text style={styles.inviteBtnText}>Invite</Text>
+                    <Ionicons name="search" size={18} color="#fff" />
                   )}
                 </TouchableOpacity>
               </View>
-            ))}
+
+              {searchResults.length === 0 && !searching && searchQuery.trim() !== "" && (
+                <Text style={styles.noResults}>No users found</Text>
+              )}
+
+              {searchResults.map((user) => (
+                <View key={user.uid} style={styles.resultRow}>
+                  <View style={styles.resultAvatar}>
+                    <Text style={styles.resultAvatarText}>
+                      {user.username.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={styles.resultUsername}>{user.username}</Text>
+                  <TouchableOpacity
+                    style={styles.inviteBtn}
+                    onPress={() => handleSendInvite(user)}
+                    disabled={sendingInvite === user.uid}
+                  >
+                    {sendingInvite === user.uid ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.inviteBtnText}>Invite</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

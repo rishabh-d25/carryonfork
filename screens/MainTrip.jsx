@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -25,6 +25,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
+import { ScreenStack, StackScreen } from "react-native-screens";
 
 const BLUE = "#3F63F3";
 
@@ -52,12 +53,17 @@ function getMillis(value) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+
 export default function MainTrip() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  
 
-  const tripId = params.tripId ? String(params.tripId) : null;
-  const journalId = params.journalId ? String(params.journalId) : null;
+const tripId = params.tripId
+  ? String(params.tripId)
+  : params.chatId
+  ? String(params.chatId)
+  : null;  const journalId = params.journalId ? String(params.journalId) : null;
   const tripTitle = params.title ? String(params.title) : "Trip";
 
   const placeholderTiles = useMemo(
@@ -137,40 +143,38 @@ export default function MainTrip() {
   const showLabel = (id) => setActiveId(id);
   const hideLabel = () => setActiveId(null);
 
-  const onBack = () => router.back();
+const onBack = () => {
+  if (router.canGoBack()) {
+    router.back();
+  } else {
+    router.push("/dashboard");
+  }
+};  const onTodo = () =>
+router.replace({ pathname: "/preparation", params: { tripId, title: tripTitle } });
 
-  const onTodo = () =>
-    router.push({
-      pathname: "/preparation",
-      params: { tripId },
-    });
 
   const onAdd = () => {
-    router.push({
-      pathname: "/addactivity",
-      params: { tripId },
-    });
+router.replace({ pathname: "/addactivity", params: { tripId } });
+
   };
 
   const onWallet = () =>
-    router.push({
-      pathname: "/wallet",
-      params: { tripId },
-    });
+router.replace({ pathname: "/wallet", params: { tripId, title: tripTitle } });
+
 
   const onJournal = () => {
     console.log(journalId);
-    router.push({
-      pathname: "/journal",
-      params: { journalId: tripId },
-    });
-  };
+router.replace({
+  pathname: "/journal",
+  params: {
+    tripId,
+    journalId: tripId,
+    title: tripTitle,
+  },
+});  };
 
   const onItinerary = () =>
-    router.push({
-      pathname: "/tripitinerary",
-      params: { tripId },
-    });
+router.replace({ pathname: "/tripitinerary", params: { tripId } });
 
   const getBigPhotoUri = () => {
     if (heroPhoto?.uri) return heroPhoto.uri;
@@ -439,14 +443,15 @@ export default function MainTrip() {
         });
       }
 
-      router.push({
-        pathname: "/chat",
-        params: {
-          chatId: tripId,
-          tripId,
-          title: tripTitle,
-        },
-      });
+router.push({
+  pathname: "/chat",
+  params: {
+    chatId: String(tripId),
+    tripId: String(tripId),
+    title: tripTitle,
+  },
+});
+
     } catch (error) {
       console.log("CHAT LOAD ERROR:", error);
       Alert.alert("Error", error?.message || "Cannot open chat.");
@@ -471,7 +476,7 @@ export default function MainTrip() {
     try {
       const tripRef = doc(db, "users", user.uid, "trips", tripId);
       await deleteDoc(tripRef);
-      router.replace("/dashboard");
+      router.dismissTo("/dashboard");
     } catch (error) {
       console.log("DELETE TRIP ERROR:", error);
       Alert.alert("Error", "Trip could not be deleted.");
@@ -504,7 +509,14 @@ export default function MainTrip() {
   const isPastTrip =
     getMillis(tripDates.endDate) > 0 && getMillis(tripDates.endDate) < now;
 
-  return (
+return (
+  <>
+    <Stack.Screen
+      options={{
+        gestureEnabled: false,
+        animationTypeForReplace: "pop",
+      }}
+    />
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
@@ -512,134 +524,136 @@ export default function MainTrip() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.topRow}>
-          <Pressable onPress={onBack} style={styles.iconButton} hitSlop={8}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-          </Pressable>
+          <View style={styles.topRow}>
+            <Pressable onPress={onBack} style={styles.iconButton} hitSlop={8}>
+              <Ionicons name="chevron-back" size={24} color="#111827" />
+            </Pressable>
 
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {tripTitle}
-          </Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {tripTitle}
+            </Text>
 
-          <View style={styles.rightIcons}>
-            {showChatButton && (
+            <View style={styles.rightIcons}>
+              {showChatButton && (
+                <Pressable
+                  onPress={onOpenChat}
+                  style={[styles.iconButton, { justifyContent: "center" }]}
+                  hitSlop={8}
+                  disabled={openingChat}
+                >
+                  <Ionicons name="chatbubble-outline" size={20} color={BLUE} />
+                </Pressable>
+              )}
+
               <Pressable
-                onPress={onOpenChat}
+                onPress={onDeleteTrip}
                 style={[styles.iconButton, { justifyContent: "center" }]}
                 hitSlop={8}
-                disabled={openingChat}
               >
-                <Ionicons name="chatbubble-outline" size={20} color={BLUE} />
+                <Ionicons name="trash-outline" size={20} color="#DC2626" />
               </Pressable>
-            )}
-
-            <Pressable
-              onPress={onDeleteTrip}
-              style={[styles.iconButton, { justifyContent: "center" }]}
-              hitSlop={8}
-            >
-              <Ionicons name="trash-outline" size={20} color="#DC2626" />
-            </Pressable>
-          </View>
-        </View>
-
-        <Pressable onPress={onHeroPress} style={styles.heroWrap}>
-          {bigPhotoUri ? (
-            <ImageBackground
-              source={{ uri: bigPhotoUri }}
-              style={styles.heroImage}
-              imageStyle={styles.heroImageRadius}
-            >
-              <View style={styles.heroLabelPill}>
-                <Text style={styles.heroLabelText}>
-                  {heroPhoto?.uri ? "Main Photo" : "From Placeholder"}
-                </Text>
-              </View>
-            </ImageBackground>
-          ) : (
-            <View style={styles.heroPlaceholder}>
-              <Ionicons name="image-outline" size={34} color="#9CA3AF" />
-              <Text style={styles.heroPlaceholderText}>Tap to add main photo</Text>
             </View>
-          )}
-        </Pressable>
+          </View>
 
-        <Text style={styles.subhead}>Trip Photos</Text>
-
-        <View style={styles.grid}>
-          {placeholderTiles.map((t) => {
-            const isActive = activeId === t.id;
-            const photoUri = tripPhotos[t.id]?.uri;
-            const isHeroSource = heroPhoto?.sourceSlot === t.id;
-
-            return (
-              <Pressable
-                key={t.id}
-                style={styles.tile}
-                onPress={() => onPhotoTilePress(t.id)}
-                onHoverIn={
-                  Platform.OS === "web" ? () => showLabel(t.id) : undefined
-                }
-                onHoverOut={Platform.OS === "web" ? hideLabel : undefined}
-                onPressIn={
-                  Platform.OS !== "web" ? () => showLabel(t.id) : undefined
-                }
-                onPressOut={Platform.OS !== "web" ? hideLabel : undefined}
+          <Pressable onPress={onHeroPress} style={styles.heroWrap}>
+            {bigPhotoUri ? (
+              <ImageBackground
+                source={{ uri: bigPhotoUri }}
+                style={styles.heroImage}
+                imageStyle={styles.heroImageRadius}
               >
-                {photoUri ? (
-                  <Image source={{ uri: photoUri }} style={styles.tileImg} />
-                ) : (
-                  <View style={styles.placeholderBox}>
-                    <Ionicons name="image-outline" size={26} color="#9CA3AF" />
-                    <Text style={styles.placeholderText}>Tap to add photo</Text>
-                  </View>
-                )}
-
-                {isActive && (
-                  <View style={styles.labelPill}>
-                    <Text style={styles.labelText}>
-                      {t.title} • {photoUri ? "Saved" : "Empty"}
-                    </Text>
-                  </View>
-                )}
-
-                {isHeroSource && photoUri ? (
-                  <View style={styles.mainBadge}>
-                    <Text style={styles.mainBadgeText}>MAIN</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {!isPastTrip && (
-          <Pressable onPress={onTodo} style={styles.btn}>
-            <Text style={styles.btnText}>My To-Do</Text>
+                <View style={styles.heroLabelPill}>
+                  <Text style={styles.heroLabelText}>
+                    {heroPhoto?.uri ? "Main Photo" : "From Placeholder"}
+                  </Text>
+                </View>
+              </ImageBackground>
+            ) : (
+              <View style={styles.heroPlaceholder}>
+                <Ionicons name="image-outline" size={34} color="#9CA3AF" />
+                <Text style={styles.heroPlaceholderText}>Tap to add main photo</Text>
+              </View>
+            )}
           </Pressable>
-        )}
 
-        <Pressable onPress={onAdd} style={styles.btn}>
-          <Text style={styles.btnText}>Add Activity</Text>
-        </Pressable>
+          <Text style={styles.subhead}>Trip Photos</Text>
 
-        <Pressable onPress={onItinerary} style={styles.btn}>
-          <Text style={styles.btnText}>Trip Itinerary</Text>
-        </Pressable>
+          <View style={styles.grid}>
+            {placeholderTiles.map((t) => {
+              const isActive = activeId === t.id;
+              const photoUri = tripPhotos[t.id]?.uri;
+              const isHeroSource = heroPhoto?.sourceSlot === t.id;
 
-        <Pressable onPress={onWallet} style={styles.btn}>
-          <Text style={styles.btnText}>Wallet</Text>
-        </Pressable>
+              return (
+                <Pressable
+                  key={t.id}
+                  style={styles.tile}
+                  onPress={() => onPhotoTilePress(t.id)}
+                  onHoverIn={
+                    Platform.OS === "web" ? () => showLabel(t.id) : undefined
+                  }
+                  onHoverOut={Platform.OS === "web" ? hideLabel : undefined}
+                  onPressIn={
+                    Platform.OS !== "web" ? () => showLabel(t.id) : undefined
+                  }
+                  onPressOut={Platform.OS !== "web" ? hideLabel : undefined}
+                >
+                  {photoUri ? (
+                    <Image source={{ uri: photoUri }} style={styles.tileImg} />
+                  ) : (
+                    <View style={styles.placeholderBox}>
+                      <Ionicons name="image-outline" size={26} color="#9CA3AF" />
+                      <Text style={styles.placeholderText}>Tap to add photo</Text>
+                    </View>
+                  )}
 
-        <Pressable onPress={onJournal} style={styles.btn}>
-          <Text style={styles.btnText}>Journal</Text>
-        </Pressable>
+                  {isActive && (
+                    <View style={styles.labelPill}>
+                      <Text style={styles.labelText}>
+                        {t.title} • {photoUri ? "Saved" : "Empty"}
+                      </Text>
+                    </View>
+                  )}
 
-        <View style={{ height: 24 }} />
-      </ScrollView>
-    </SafeAreaView>
+                  {isHeroSource && photoUri ? (
+                    <View style={styles.mainBadge}>
+                      <Text style={styles.mainBadgeText}>MAIN</Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {!isPastTrip && (
+            <Pressable onPress={onTodo} style={styles.btn}>
+              <Text style={styles.btnText}>My To-Do</Text>
+            </Pressable>
+          )}
+
+          <Pressable onPress={onAdd} style={styles.btn}>
+            <Text style={styles.btnText}>Add Activity</Text>
+          </Pressable>
+
+          <Pressable onPress={onItinerary} style={styles.btn}>
+            <Text style={styles.btnText}>Trip Itinerary</Text>
+          </Pressable>
+
+          <Pressable onPress={onWallet} style={styles.btn}>
+            <Text style={styles.btnText}>Wallet</Text>
+          </Pressable>
+
+          <Pressable onPress={onJournal} style={styles.btn}>
+            <Text style={styles.btnText}>Journal</Text>
+          </Pressable>
+
+          <View style={{ height: 24 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </>
   );
 }
+
 
 const styles = StyleSheet.create({
   safe: {

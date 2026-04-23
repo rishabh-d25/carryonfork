@@ -74,7 +74,7 @@ const SECTIONS = {
 
 export default function BeforeYouTravel() {
   const router = useRouter();
-  const { tripId } = useLocalSearchParams();
+const { tripId, title } = useLocalSearchParams();
 
   const [destination, setDestination] = useState(null);
   const [startDate, setStartDate] = useState(null);
@@ -262,9 +262,17 @@ export default function BeforeYouTravel() {
       <ScrollView contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         <View style={st.topRow}>
-          <TouchableOpacity onPress={() => router.back()} style={st.backBtn}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-          </TouchableOpacity>
+<TouchableOpacity
+  onPress={() =>
+    router.replace({
+      pathname: "/maintrip",
+      params: { tripId, title},
+    })
+  }
+  style={st.backBtn}
+>
+  <Ionicons name="chevron-back" size={24} color="#111827" />
+</TouchableOpacity>
           <Text style={st.topTitle}>Before You Travel</Text>
           <View style={{ width: 36 }} />
         </View>
@@ -394,50 +402,323 @@ export default function BeforeYouTravel() {
 }
 
 const st = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fff" },
-  scroll: { paddingHorizontal: 18, paddingBottom: 14 },
-  topRow: { paddingTop: Platform.OS === "android" ? 10 : 4, paddingBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  backBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  topTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
-  localInfoCard: { backgroundColor: "#f5f7ff", borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: "rgba(46,91,255,0.15)", gap: 8 },
-  localInfoTitle: { fontSize: 13, fontWeight: "700", color: "#2E5BFF", marginBottom: 4 },
-  infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  infoLabel: { fontSize: 11, color: "rgba(17,24,39,0.45)", fontWeight: "700", flex: 1 },
-  infoVal: { fontSize: 12, color: "#222", fontWeight: "500", flex: 2, textAlign: "right" },
-  stack: { gap: 10 },
-  card: { borderRadius: 10, borderWidth: 1, borderColor: "rgba(17,24,39,0.12)", backgroundColor: "#fff", overflow: "hidden" },
-  cardOpen: { borderColor: "#2E5BFF", borderWidth: 1.5 },
-  cardHeader: { paddingHorizontal: 14, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  cardHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
-  cardTitle: { fontSize: 11, letterSpacing: 1.1, color: "rgba(17,24,39,0.55)", fontWeight: "700" },
-  secCb: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: "rgba(17,24,39,0.25)", alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
-  secCbDone: { backgroundColor: "#2E5BFF", borderColor: "#2E5BFF" },
-  cardBody: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 4 },
-  clWrap: { gap: 10 },
-  clRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  cb: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: "rgba(17,24,39,0.22)", alignItems: "center", justifyContent: "center", backgroundColor: "#fff", flexShrink: 0 },
-  cbDone: { backgroundColor: "#2E5BFF", borderColor: "#2E5BFF" },
-  clLabel: { fontSize: 13, color: "rgba(17,24,39,0.8)", flex: 1, lineHeight: 18 },
-  clLabelDone: { color: "rgba(17,24,39,0.3)", textDecorationLine: "line-through" },
-  hintBox: { flexDirection: "row", alignItems: "flex-start", gap: 7, backgroundColor: "#f0f4ff", borderRadius: 8, padding: 10, marginBottom: 10 },
-  hintText: { flex: 1, fontSize: 12, lineHeight: 17 },
-  subheading: { fontSize: 12, fontWeight: "700", color: "rgba(17,24,39,0.55)", letterSpacing: 0.8, marginBottom: 8 },
-  weatherSubtitle: { fontSize: 11, color: "rgba(17,24,39,0.45)", marginBottom: 10 },
-  weatherScroll: { marginHorizontal: -14 },
-  weatherCard: { width: 110, backgroundColor: "#f5f7ff", borderRadius: 12, padding: 10, marginLeft: 14, marginRight: 4, alignItems: "center", borderWidth: 1, borderColor: "rgba(46,91,255,0.1)" },
-  weatherDate: { fontSize: 10, fontWeight: "700", color: "rgba(17,24,39,0.45)", textAlign: "center" },
-  weatherDesc: { fontSize: 10, color: "#555", textAlign: "center", marginBottom: 3 },
-  weatherTemp: { fontSize: 13, fontWeight: "800", color: "#111" },
-  weatherRain: { fontSize: 10, color: "#555", marginTop: 2 },
-  bottomArea: { marginTop: 24, borderTopWidth: 1, borderTopColor: "rgba(17,24,39,0.08)", paddingTop: 18 },
-  statRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 18 },
-  leftStat: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  rightStat: { flex: 1, alignItems: "center" },
-  progressTrack: { width: "90%", height: 8, borderRadius: 8, backgroundColor: "rgba(17,24,39,0.15)", overflow: "hidden", marginBottom: 10 },
-  progressFill: { height: "100%", borderRadius: 8, backgroundColor: "#2E5BFF" },
-  tasksRow: { flexDirection: "row", alignItems: "flex-end", gap: 2, marginBottom: 2 },
-  bigNumber: { fontSize: 38, fontWeight: "500", color: "#111827", lineHeight: 40 },
-  slash: { fontSize: 28, color: "rgba(17,24,39,0.45)", paddingBottom: 4 },
-  smallLabel: { marginTop: 4, fontSize: 12, color: "rgba(17,24,39,0.6)" },
-  smallLabelCenter: { marginTop: 2, fontSize: 12, color: "rgba(17,24,39,0.6)", textAlign: "center" },
+  safe: {
+    flex: 1,
+    backgroundColor: "#DCE6FF",
+  },
+
+  scroll: {
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+  },
+
+  topRow: {
+    paddingTop: Platform.OS === "android" ? 10 : 4,
+    paddingBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#C9D7FF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+  },
+
+  topTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#3F63F3",
+  },
+
+  localInfoCard: {
+    backgroundColor: "#D4DEFF",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+    gap: 8,
+  },
+
+  localInfoTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#3F63F3",
+    marginBottom: 4,
+  },
+
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+
+  infoLabel: {
+    fontSize: 11,
+    color: "#6B7280",
+    fontWeight: "700",
+    flex: 1,
+  },
+
+  infoVal: {
+    fontSize: 12,
+    color: "#1F2937",
+    fontWeight: "500",
+    flex: 2,
+    textAlign: "right",
+  },
+
+  stack: {
+    gap: 10,
+  },
+
+  card: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+    backgroundColor: "#D4DEFF",
+    overflow: "hidden",
+  },
+
+  cardOpen: {
+    borderColor: "#3F63F3",
+    borderWidth: 1.5,
+  },
+
+  cardHeader: {
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  cardHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  cardTitle: {
+    fontSize: 11,
+    letterSpacing: 1.1,
+    color: "#4B5563",
+    fontWeight: "700",
+  },
+
+  secCb: {
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: "#B4C6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF2FF",
+  },
+
+  secCbDone: {
+    backgroundColor: "#3F63F3",
+    borderColor: "#3F63F3",
+  },
+
+  cardBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    paddingTop: 4,
+  },
+
+  clWrap: {
+    gap: 10,
+  },
+
+  clRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  cb: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: "#B4C6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF2FF",
+    flexShrink: 0,
+  },
+
+  cbDone: {
+    backgroundColor: "#3F63F3",
+    borderColor: "#3F63F3",
+  },
+
+  clLabel: {
+    fontSize: 13,
+    color: "#1F2937",
+    flex: 1,
+    lineHeight: 18,
+  },
+
+  clLabelDone: {
+    color: "#6B7280",
+    textDecorationLine: "line-through",
+  },
+
+  hintBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 7,
+    backgroundColor: "#EEF2FF",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+  },
+
+  hintText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+
+  subheading: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4B5563",
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+
+  weatherSubtitle: {
+    fontSize: 11,
+    color: "#6B7280",
+    marginBottom: 10,
+  },
+
+  weatherScroll: {
+    marginHorizontal: -14,
+  },
+
+  weatherCard: {
+    width: 110,
+    backgroundColor: "#EEF2FF",
+    borderRadius: 12,
+    padding: 10,
+    marginLeft: 14,
+    marginRight: 4,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+  },
+
+  weatherDate: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#6B7280",
+    textAlign: "center",
+  },
+
+  weatherDesc: {
+    fontSize: 10,
+    color: "#4B5563",
+    textAlign: "center",
+    marginBottom: 3,
+  },
+
+  weatherTemp: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#1F2937",
+  },
+
+  weatherRain: {
+    fontSize: 10,
+    color: "#4B5563",
+    marginTop: 2,
+  },
+
+  bottomArea: {
+    marginTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: "#B4C6FF",
+    paddingTop: 18,
+  },
+
+  statRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 18,
+  },
+
+  leftStat: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+
+  rightStat: {
+    flex: 1,
+    alignItems: "center",
+  },
+
+  progressTrack: {
+    width: "90%",
+    height: 8,
+    borderRadius: 8,
+    backgroundColor: "#C9D7FF",
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+
+  progressFill: {
+    height: "100%",
+    borderRadius: 8,
+    backgroundColor: "#3F63F3",
+  },
+
+  tasksRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 2,
+    marginBottom: 2,
+  },
+
+  bigNumber: {
+    fontSize: 38,
+    fontWeight: "500",
+    color: "#1F2937",
+    lineHeight: 40,
+  },
+
+  slash: {
+    fontSize: 28,
+    color: "#6B7280",
+    paddingBottom: 4,
+  },
+
+  smallLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#4B5563",
+  },
+
+  smallLabelCenter: {
+    marginTop: 2,
+    fontSize: 12,
+    color: "#4B5563",
+    textAlign: "center",
+  },
 });

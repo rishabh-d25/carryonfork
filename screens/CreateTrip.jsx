@@ -42,9 +42,9 @@ export default function CreateTrip() {
   const [endDay, setEndDay] = useState("");
   const [endYear, setEndYear] = useState("");
 
-  function onBack() {
-    router.back();
-  }
+function onBack() {
+  router.dismissTo("/dashboard");
+}
 
   function buildDate(year, month, day) {
     return new Date(Number(year), Number(month) - 1, Number(day));

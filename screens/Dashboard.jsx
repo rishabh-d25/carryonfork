@@ -4,11 +4,12 @@ import {
 } from "@expo-google-fonts/cinzel-decorative";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { getAuth } from "firebase/auth";
+import { getAuth, signOut } from "firebase/auth";
 import { collection, getDocs } from "firebase/firestore";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ImageBackground,
   SafeAreaView,
@@ -114,6 +115,17 @@ function getTripDisplayPhotoUri(trip) {
   return getPlaceholderPhotoUri(trip);
 }
 
+function getTripName(trip) {
+  if (!trip) return "Trip";
+  return trip.title || trip.location?.city || trip.location?.country || "Trip";
+}
+
+function getTripLocationText(trip) {
+  if (!trip?.location) return "";
+  if (typeof trip.location === "string") return trip.location;
+  return [trip.location?.city, trip.location?.country].filter(Boolean).join(", ");
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [trips, setTrips] = useState([]);
@@ -122,8 +134,6 @@ export default function Dashboard() {
   const [fontsLoaded] = useFonts({
     CinzelDecorative_700Bold,
   });
-
-  const MAIN_TRIP_IMAGE = require("../assets/images/main-trip.jpg");
 
   const loadTrips = async () => {
     try {
@@ -225,7 +235,7 @@ export default function Dashboard() {
       pathname: "/maintrip",
       params: {
         tripId: trip.id,
-        title: trip.title || trip.location?.city || trip.location?.country || "Trip",
+        title: getTripName(trip),
       },
     });
   };
@@ -237,14 +247,33 @@ export default function Dashboard() {
   const onInvitesPress = () => router.push("/invites");
 
   const onSettingsPress = () => {
-    console.log("setting");
     router.push({
       pathname: "/settings",
       params: { userId: user?.uid },
     });
   };
 
-  const onBackPress = () => router.back();
+  const onBackPress = () => {
+    Alert.alert("Log out", "Are you sure you want to log out?", [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Log Out",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await signOut(auth);
+            router.dismissTo("/login");
+          } catch (error) {
+            console.log("Logout error:", error);
+            Alert.alert("Error", "Could not log out. Please try again.");
+          }
+        },
+      },
+    ]);
+  };
 
   if (!fontsLoaded) return null;
 
@@ -255,25 +284,25 @@ export default function Dashboard() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={true}
-
       >
-<View style={styles.topRow}>
-  <TouchableOpacity
-    onPress={onBackPress}
-    style={styles.iconButton}
-    activeOpacity={0.7}
-  >
-    <Ionicons name="chevron-back" size={24} color={TEXT} />
-  </TouchableOpacity>
+        <View style={styles.topRow}>
+          <TouchableOpacity
+            onPress={onBackPress}
+            style={styles.iconButton}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={24} color={TEXT} />
+          </TouchableOpacity>
 
-  <TouchableOpacity
-    onPress={onSettingsPress}
-    style={styles.iconButton}
-    activeOpacity={0.7}
-  >
-    <Ionicons name="settings-outline" size={22} color={TEXT} />
-  </TouchableOpacity>
-</View>
+          <TouchableOpacity
+            onPress={onSettingsPress}
+            style={styles.iconButton}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="settings-outline" size={22} color={TEXT} />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.titleWrap}>
           <Text style={styles.title}>CarryOn</Text>
           <Text style={styles.subtitle}>PLAN. PACK. GO.</Text>
@@ -296,9 +325,7 @@ export default function Dashboard() {
                 imageStyle={styles.heroImageRadius}
               >
                 <View style={styles.heroLabelButton}>
-                  <Text style={styles.heroLabelText}>
-                    {mainTrip.title || mainTrip.location?.city || mainTrip.location?.country || "Trip"}
-                  </Text>
+                  <Text style={styles.heroLabelText}>{getTripName(mainTrip)}</Text>
                   {!!getTripDateRange(mainTrip) && (
                     <Text style={styles.heroDateText}>
                       {getTripDateRange(mainTrip)}
@@ -306,21 +333,20 @@ export default function Dashboard() {
                   )}
                 </View>
               </ImageBackground>
-              ) : (
-<View style={[styles.heroImage, styles.heroEmpty]}>
-  <Ionicons name="image-outline" size={36} color="#9CA3AF" />
-  <Text style={styles.heroEmptyText}>Add a trip photo</Text>                  <View style={styles.heroLabelButton}>
-                    <Text style={styles.heroLabelText}>
-                      {mainTrip.title || mainTrip.location?.city || mainTrip.location?.country || "Trip"}
+            ) : (
+              <View style={[styles.heroImage, styles.heroEmpty]}>
+                <Ionicons name="image-outline" size={36} color="#9CA3AF" />
+                <Text style={styles.heroEmptyText}>Add a trip photo</Text>
+                <View style={styles.heroLabelButton}>
+                  <Text style={styles.heroLabelText}>{getTripName(mainTrip)}</Text>
+                  {!!getTripDateRange(mainTrip) && (
+                    <Text style={styles.heroDateText}>
+                      {getTripDateRange(mainTrip)}
                     </Text>
-                    {!!getTripDateRange(mainTrip) && (
-                      <Text style={styles.heroDateText}>
-                        {getTripDateRange(mainTrip)}
-                      </Text>
-                    )}
-                  </View>
+                  )}
                 </View>
-              )}
+              </View>
+            )}
           </TouchableOpacity>
         ) : (
           <View style={styles.noMainTripCard}>
@@ -357,15 +383,9 @@ export default function Dashboard() {
                 >
                   <View style={styles.tripCardLeft}>
                     {tripPhotoUri ? (
-                      <Image
-                        source={{ uri: tripPhotoUri }}
-                        style={styles.tripThumb}
-                      />
+                      <Image source={{ uri: tripPhotoUri }} style={styles.tripThumb} />
                     ) : trip.imageUrl ? (
-                      <Image
-                        source={{ uri: trip.imageUrl }}
-                        style={styles.tripThumb}
-                      />
+                      <Image source={{ uri: trip.imageUrl }} style={styles.tripThumb} />
                     ) : (
                       <View style={styles.tripThumbPlaceholder}>
                         <Ionicons name="airplane" size={22} color={ICON} />
@@ -375,7 +395,7 @@ export default function Dashboard() {
 
                   <View style={styles.tripCardBody}>
                     <Text style={styles.tripCardTitle} numberOfLines={1}>
-                      {trip.title || trip.location?.city || trip.location?.country || "Trip"}
+                      {getTripName(trip)}
                     </Text>
 
                     {!!getTripDateRange(trip) && (
@@ -390,11 +410,12 @@ export default function Dashboard() {
                       </Text>
                     )}
 
-                    {!!trip.location?.city && trip.title !== trip.location.city && (
-                      <Text style={styles.tripCardMeta} numberOfLines={1}>
-                        {trip.location.city}, {trip.location.country}
-                      </Text>
-                    )}
+                    {!!getTripLocationText(trip) &&
+                      trip.title !== trip.location?.city && (
+                        <Text style={styles.tripCardMeta} numberOfLines={1}>
+                          {getTripLocationText(trip)}
+                        </Text>
+                      )}
                   </View>
 
                   <Ionicons name="chevron-forward" size={18} color={MUTED} />
@@ -444,15 +465,9 @@ export default function Dashboard() {
                   >
                     <View style={styles.circleShadowWrap}>
                       {tripPhotoUri ? (
-                        <Image
-                          source={{ uri: tripPhotoUri }}
-                          style={styles.tripCircleImg}
-                        />
+                        <Image source={{ uri: tripPhotoUri }} style={styles.tripCircleImg} />
                       ) : t.imageUrl ? (
-                        <Image
-                          source={{ uri: t.imageUrl }}
-                          style={styles.tripCircleImg}
-                        />
+                        <Image source={{ uri: t.imageUrl }} style={styles.tripCircleImg} />
                       ) : (
                         <View style={styles.tripCirclePlaceholder}>
                           <Ionicons name="airplane" size={22} color={ICON} />
@@ -461,7 +476,7 @@ export default function Dashboard() {
                     </View>
 
                     <Text style={styles.tripCircleLabel} numberOfLines={1}>
-                      {t.title || t.location || "Trip"}
+                      {getTripName(t)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -519,13 +534,13 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
 
-topRow: {
-  paddingTop: 0,
-  paddingBottom: 6,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "space-between",
-},
+  topRow: {
+    paddingTop: 0,
+    paddingBottom: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   iconButton: {
     width: 36,
     height: 36,
@@ -550,20 +565,20 @@ topRow: {
     fontFamily: "CinzelDecorative_700Bold",
   },
   heroEmpty: {
-  backgroundColor: "#C9D7FF",
-  borderWidth: 1,
-  borderColor: "#B4C6FF",
-  borderRadius: 14,
-  alignItems: "center",
-  justifyContent: "center",
-},
+    backgroundColor: "#C9D7FF",
+    borderWidth: 1,
+    borderColor: "#B4C6FF",
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-heroEmptyText: {
-  marginTop: 8,
-  fontSize: 14,
-  fontWeight: "600",
-  color: "#4B5563",
-},
+  heroEmptyText: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#4B5563",
+  },
   subtitle: {
     marginTop: 6,
     fontSize: 12,
